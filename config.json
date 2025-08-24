@@ -9,7 +9,7 @@
     {
       "id": "debit_spreads",
       "name": "Debit Spreads",
-      "description": "Defined-risk convex sleeve with long call/put verticals",
+      "description": "Wide-spread convex sleeve for uncapped upside",
       "enabled": true,
       "account": {
         "id": null,
@@ -18,31 +18,31 @@
       "parameters": {
         "targetDelta": 0.30,
         "shortDelta": 0.30,
-        "width": 5,
-        "contracts": 1,
-        "dteTarget": 35,
-        "dteMin": 21,
-        "dteMax": 45
+        "width": 15,
+        "contracts": 2,
+        "dteTarget": 45,
+        "dteMin": 30,
+        "dteMax": 60
       },
       "riskLimits": {
-        "maxWeeklySpend": 500,
-        "maxPositionSize": 20,
-        "maxDailyTrades": 10
+        "maxWeeklySpend": 1000,
+        "maxPositionSize": 50,
+        "maxDailyTrades": 15
       },
       "components": ["debit_call_vertical"]
     },
     {
       "id": "credit_spreads",
       "name": "Credit Spreads",
-      "description": "High win-rate income sleeve with bull put spreads",
+      "description": "Minimal income sleeve, high IV only",
       "enabled": true,
       "account": {
         "id": null,
         "index": 1
       },
       "parameters": {
-        "targetDelta": 0.25,
-        "shortDelta": 0.20,
+        "targetDelta": 0.20,
+        "shortDelta": 0.15,
         "width": 5,
         "contracts": 1,
         "dteTarget": 35,
@@ -50,16 +50,16 @@
         "dteMax": 45
       },
       "riskLimits": {
-        "maxWeeklySpend": 200,
-        "maxPositionSize": 15,
-        "maxDailyTrades": 8
+        "maxWeeklySpend": 100,
+        "maxPositionSize": 10,
+        "maxDailyTrades": 5
       },
       "components": ["credit_put_spread"]
     },
     {
       "id": "event_straddles",
-      "name": "Event Straddles", 
-      "description": "Monthly convex sleeve capturing volatility expansions",
+      "name": "Event Straddles",
+      "description": "Gated volatility expansion plays",
       "enabled": true,
       "account": {
         "id": null,
@@ -69,22 +69,22 @@
         "targetDelta": 0.50,
         "shortDelta": 0.50,
         "width": 0,
-        "contracts": 1,
+        "contracts": 2,
         "dteTarget": 21,
         "dteMin": 7,
         "dteMax": 35
       },
       "riskLimits": {
-        "maxWeeklySpend": 400,
-        "maxPositionSize": 8,
-        "maxDailyTrades": 4
+        "maxWeeklySpend": 600,
+        "maxPositionSize": 15,
+        "maxDailyTrades": 6
       },
       "components": ["atm_straddle"]
     },
     {
       "id": "collar_equity",
       "name": "Collar Equity",
-      "description": "Ballast sleeve with ETF holdings and monthly collar overlay",
+      "description": "Ballast with growth ETFs and collar overlay",
       "enabled": true,
       "account": {
         "id": null,
@@ -94,53 +94,54 @@
         "targetDelta": 0.20,
         "shortDelta": 0.15,
         "width": 0,
-        "contracts": 1,
+        "contracts": 5,
         "dteTarget": 28,
         "dteMin": 21,
         "dteMax": 35
       },
       "riskLimits": {
-        "maxWeeklySpend": 100,
-        "maxPositionSize": 50,
-        "maxDailyTrades": 2
+        "maxWeeklySpend": 200,
+        "maxPositionSize": 100,
+        "maxDailyTrades": 3
       },
       "components": ["collar_position"]
     },
     {
       "id": "crash_hedge",
       "name": "Crash Hedge",
-      "description": "Tail insurance sleeve with far OTM puts",
+      "description": "Minimal tail insurance",
       "enabled": true,
       "account": {
         "id": null,
         "index": 4
       },
       "parameters": {
-        "targetDelta": 0.08,
-        "shortDelta": 0.08,
+        "targetDelta": 0.06,
+        "shortDelta": 0.06,
         "width": 0,
         "contracts": 1,
-        "dteTarget": 45,
-        "dteMin": 30,
-        "dteMax": 60
+        "dteTarget": 60,
+        "dteMin": 45,
+        "dteMax": 90
       },
       "riskLimits": {
         "maxWeeklySpend": 50,
-        "maxPositionSize": 10,
-        "maxDailyTrades": 3
+        "maxPositionSize": 20,
+        "maxDailyTrades": 2
       },
       "components": ["crash_hedge_put"]
     }
   ],
   "universe": {
-    "discoveryMode": "dynamic",
+    "discoveryMode": "static",
     "maxSymbols": 6,
-    "fallbackSymbols": ["US.SPY", "US.QQQ", "US.IWM", "US.DIA"],
+    "fallbackSymbols": ["US.NVDA", "US.TSLA", "US.AMD", "US.META", "US.QQQ", "US.IWM"],
     "filters": {
-      "minVolume": 1000000,
-      "minOpenInterest": 500,
-      "minPrice": 20,
-      "maxPrice": 1000
+      "minVolume": 2000000,
+      "minOpenInterest": 1000,
+      "minPrice": 50,
+      "maxPrice": 2000,
+      "preferHighBeta": true
     }
   },
   "rebalancing": {
@@ -151,9 +152,9 @@
   },
   "risk": {
     "globalLimits": {
-      "maxTotalWeeklySpend": 1500,
-      "maxAccountAllocation": 0.25,
-      "maxSinglePositionSize": 0.05
+      "maxTotalWeeklySpend": 2000,
+      "maxAccountAllocation": 0.35,
+      "maxSinglePositionSize": 0.08
     },
     "feeEstimation": {
       "lookbackOrders": 50,
@@ -168,29 +169,41 @@
     "enablePerformanceTracking": true
   },
   "cppi": {
-    "floorPct": 0.85,
-    "cppiM": 4.0,
-    "riskScaleOptions": 1.25,
+    "floorPct": 0.80,
+    "cppiM": 6.0,
+    "riskScaleOptions": 1.75,
     "riskySplit": {
-      "debit": 0.60,
-      "credit": 0.15,
-      "straddle": 0.25,
-      "hedgeFixed": 0.02
+      "debit": 0.75,
+      "credit": 0.05,
+      "straddle": 0.20,
+      "hedgeFixed": 0.01
     },
     "driftBandAbs": 0.10,
     "rebalanceEveryWeeks": 4,
-    "weeklyDeposit": 50,
+    "weeklyDeposit": 250,
     "baseRiskPct": {
-      "debit": 0.06,
-      "credit": 0.02,
-      "straddle": 0.04,
+      "debit": 0.10,
+      "credit": 0.01,
+      "straddle": 0.06,
       "hedge": 0.01
     },
     "minTickets": {
-      "debit": 30,
-      "creditMaxLoss": 100,
-      "straddle": 50,
-      "hedge": 5
+      "debit": 100,
+      "creditMaxLoss": 150,
+      "straddle": 100,
+      "hedge": 10
+    }
+  },
+  "filters": {
+    "ivRank": {
+      "enabled": true,
+      "straddleMaxIVR": 0.25,
+      "creditMinIVR": 0.50
+    },
+    "trend": {
+      "enabled": true,
+      "requireBullTrendForDebits": true,
+      "requireBearTrendForCredits": false
     }
   }
 }

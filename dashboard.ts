@@ -192,19 +192,19 @@ function generateHTML(data: DashboardData): string {
                         <strong>${result.filename}</strong>
                         <div class="metric">
                             <span>Total Return:</span>
-                            <span>${(result.metrics.totalReturn * 100).toFixed(2)}%</span>
+                            <span>${result.metrics.totalReturn ? (result.metrics.totalReturn * 100).toFixed(2) + '%' : 'N/A'}</span>
                         </div>
                         <div class="metric">
                             <span>Sharpe Ratio:</span>
-                            <span>${result.metrics.sharpeRatio.toFixed(2)}</span>
+                            <span>${result.metrics.sharpeRatio?.toFixed(2) ?? 'N/A'}</span>
                         </div>
                         <div class="metric">
                             <span>Max Drawdown:</span>
-                            <span>${(result.metrics.maxDrawdown * 100).toFixed(2)}%</span>
+                            <span>${result.metrics.maxDrawdown ? (result.metrics.maxDrawdown * 100).toFixed(2) + '%' : 'N/A'}</span>
                         </div>
                         <div class="metric">
                             <span>Total Trades:</span>
-                            <span>${result.metrics.totalTrades}</span>
+                            <span>${result.metrics.totalTrades ?? 'N/A'}</span>
                         </div>
                     </div>
                 `).join('')}
