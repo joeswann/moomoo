@@ -54,6 +54,8 @@ export interface UniverseConfig {
     minOpenInterest: number;
     minPrice: number;
     maxPrice: number;
+    preferHighBeta?: boolean;
+    includeLeveragedETFs?: boolean;
   };
 }
 
@@ -172,6 +174,8 @@ export class ConfigManager {
     }
 
     // Account ID overrides for strategies
+    const globalFallbackId = Deno.env.get("ACC_ID_1");
+    const globalFallbackIndex = Deno.env.get("ACC_INDEX_1");
     this.config.strategies.forEach((strategy, index) => {
       // Check for strategy-specific account ID
       const strategyAccId = Deno.env.get(`${strategy.id.toUpperCase()}_ACC_ID`);
@@ -180,15 +184,21 @@ export class ConfigManager {
       // Check for generic numbered account IDs (backwards compatibility)
       const numberedAccId = Deno.env.get(`ACC_ID_${index + 1}`);
       const numberedAccIndex = Deno.env.get(`ACC_INDEX_${index + 1}`);
-      
+
+      // ID precedence: STRATEGY_* > ACC_ID_1 (global) > ACC_ID_{n} > config.json
       if (strategyAccId) {
         strategy.account.id = Number(strategyAccId);
+      } else if (globalFallbackId) {
+        strategy.account.id = Number(globalFallbackId);
       } else if (numberedAccId) {
         strategy.account.id = Number(numberedAccId);
       }
-      
+
+      // INDEX precedence: STRATEGY_* > ACC_INDEX_1 (global) > ACC_INDEX_{n} > config.json
       if (strategyAccIndex) {
         strategy.account.index = Number(strategyAccIndex);
+      } else if (globalFallbackIndex) {
+        strategy.account.index = Number(globalFallbackIndex);
       } else if (numberedAccIndex) {
         strategy.account.index = Number(numberedAccIndex);
       }

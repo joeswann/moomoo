@@ -214,7 +214,7 @@ const commands: CLICommand[] = [
       
       switch (mode) {
         case "conservative":
-          configFile = "./config.json";
+          configFile = "./config-conservative.json";
           break;
         case "aggressive":
           configFile = "./config-aggressive.json";

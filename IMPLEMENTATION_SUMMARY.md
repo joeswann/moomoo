@@ -19,7 +19,7 @@ The strategy specification from `STRATEGY_SPEC.md` has been fully implemented wi
 - **Collar Equity** (residual) - Ballast sleeve with ETF + collar overlay
 - **Crash Hedge** (fixed 2%) - Tail insurance sleeve
 
-### 3. Strategy Implementations (`main.ts`)
+### 3. Strategy Implementations (`main-cppi.ts`)
 **Updated Components**:
 - `buildDebitCallVertical()` - Long call/put verticals
 - `buildCreditPutSpread()` - Bull put spreads with roll logic
@@ -124,7 +124,7 @@ The `demo.ts` file shows a 10-week simulation demonstrating:
 ├── STRATEGY_SPEC.md           # Original specification document
 ├── IMPLEMENTATION_SUMMARY.md  # This summary
 ├── cppi.ts                    # Core CPPI engine implementation
-├── main.ts                    # Updated main orchestration (CPPI-enabled)
+├── main-cppi.ts               # Updated main orchestration (CPPI-enabled)
 ├── main-original.ts           # Backup of original implementation
 ├── config.ts                  # Updated with CPPI configuration types
 ├── config.json                # Updated with 5-sleeve strategies + CPPI params
@@ -136,7 +136,7 @@ The `demo.ts` file shows a 10-week simulation demonstrating:
 
 **Production Mode** (with moomoo OpenD):
 ```bash
-deno run --allow-all main.ts
+deno run --allow-all main-cppi.ts
 ```
 
 **Demo Mode** (simulation only):

@@ -1,16 +1,8 @@
 FROM denoland/deno:1.42.4
-
-# Create app directory
 WORKDIR /app
-
-# Copy dependency files
-COPY deno.json deno.lock* ./
-
-# Cache dependencies
-RUN deno cache --node-modules-dir main-cppi.ts
-
-# Copy source code
 COPY . .
+# Cache once sources are present
+RUN deno cache --node-modules-dir main-cppi.ts dashboard.ts health-check.ts config-cli.ts backtest.ts
 
 # Create data directory for persistence
 RUN mkdir -p ./data

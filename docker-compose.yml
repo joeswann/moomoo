@@ -11,9 +11,10 @@ services:
       - DRY_RUN=true
       - DATA_DIR=/app/data
       - LOG_FILE=/app/data/trading.log
+    env_file:
+      - ./.env
     volumes:
       - ./data:/app/data  # Persist data and logs
-      - ./.env:/app/.env:ro  # Mount environment file
     restart: unless-stopped
     networks:
       - moomoo-network

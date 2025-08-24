@@ -10,7 +10,7 @@
     "health": "deno run --allow-net --allow-read health-check.ts",
     "config": "deno run --allow-read --allow-write config-cli.ts",
     "dev": "deno run --allow-net --allow-read --allow-write --allow-env --watch main-cppi.ts",
-    "check": "deno check main-cppi.ts main.ts backtest.ts dashboard.ts health-check.ts config.ts config-cli.ts",
+    "check": "deno check main-cppi.ts backtest.ts dashboard.ts health-check.ts config.ts config-cli.ts",
     "docker:build": "docker build -t moomoo-bot .",
     "docker:run": "docker run --env-file .env moomoo-bot"
   },

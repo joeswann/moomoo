@@ -18,9 +18,13 @@ DRY_RUN=true
 **Local runs**: export env vars in your shell (or use a tool like direnv to load .env). The app itself does not parse .env files - only Docker Compose mounts them.
 
 ```bash
-# Manual export
+# Manual export (strategy-specific)
 export DEBIT_SPREADS_ACC_ID=12345
 export TRD_ENV=SIMULATE
+
+# Or use global fallbacks (applies to all sleeves)
+export ACC_ID_1=12345
+export ACC_INDEX_1=0
 
 # Or use direnv with .envrc
 echo 'source_env .env' > .envrc
@@ -49,8 +53,10 @@ CRASH_HEDGE_ACC_INDEX=0
 
 **Tip**: You can also set a single fallback with `ACC_ID_1` / `ACC_INDEX_1` and omit per-strategy vars.
 
-**Precedence**: `DEBIT_SPREADS_ACC_ID` > `ACC_ID_1` > `strategy.account.id` in config.json.  
-Same for `*_ACC_INDEX`. If an ID is provided, index is ignored.
+**Precedence**:  
+- ID: `<STRATEGY>_ACC_ID` > `ACC_ID_1` > `ACC_ID_{n}` > config.json  
+- INDEX: `<STRATEGY>_ACC_INDEX` > `ACC_INDEX_1` > `ACC_INDEX_{n}` > config.json  
+- Note: If an ID is provided, index is ignored.
 
 ### Multi-account (per-sleeve)
 ```bash
@@ -72,7 +78,7 @@ deno task config list
 
 ```bash
 deno task config list
-deno task start       # main.ts (CPPI)
+deno task start       # main-cppi.ts (CPPI)
 deno task backtest    # synthetic backtest
 deno task dashboard   # http://localhost:8080
 ```

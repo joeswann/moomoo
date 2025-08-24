@@ -241,6 +241,8 @@ class BacktestEngine {
   private portfolio: Map<string, number> = new Map(); // symbol -> quantity
   private cash: number;
   private currentDate: string = "";
+  private randSeed = 123456789;
+  private rnd() { this.randSeed = (1664525 * this.randSeed + 1013904223) >>> 0; return this.randSeed / 4294967296; }
   
   constructor(private config: BacktestConfig) {
     this.cash = config.initialCapital;
@@ -461,14 +463,12 @@ class BacktestEngine {
     const commission = this.config.commissionPerContract * quantity;
     
     // Add realistic slippage (0.5-2% of premium for options)
-    const slippagePct = 0.005 + Math.random() * 0.015; // 0.5-2%
-    const slippage = price * slippagePct * (side === "BUY" ? 1 : -1);
-    const executedPrice = Math.max(0.01, price + slippage);
+    const slippagePct = 0.005 + this.rnd() * 0.015; // 0.5–2%
+    const executedPrice = Math.max(0.01, price + price * slippagePct * (side === "BUY" ? 1 : -1));
+    const gross = executedPrice * quantity * 100;
     
-    const totalCost = (side === "BUY" ? executedPrice * quantity * 100 + commission : -executedPrice * quantity * 100 - commission);
-    
-    // Check if we have enough cash/margin
-    if (side === "BUY" && totalCost > this.cash) {
+    // Check if we have enough cash/margin (only BUY needs it)
+    if (side === "BUY" && gross + commission > this.cash) {
       return; // Skip trade if insufficient funds
     }
     
@@ -482,8 +482,12 @@ class BacktestEngine {
       this.portfolio.set(symbol, newPosition);
     }
     
-    // Update cash
-    this.cash -= totalCost;
+    // Update cash (commission always reduces cash)
+    if (side === "BUY") {
+      this.cash -= (gross + commission);
+    } else {
+      this.cash += (gross - commission);
+    }
     
     // Record trade
     this.trades.push({
@@ -502,13 +506,30 @@ class BacktestEngine {
     let value = this.cash;
     
     for (const [symbol, quantity] of this.portfolio.entries()) {
-      // Find current option price
-      const underlying = symbol.split('_')[0];
+      const [underlying, expiryStr, strikeStr, typeStr] = symbol.split('_');
       const optionKey = `${underlying}_${this.currentDate}`;
-      const optionData = this.optionData.get(optionKey)?.find(opt => opt.symbol === symbol);
-      
-      if (optionData) {
-        value += optionData.price * quantity * 100;
+      const todayOpt = this.optionData.get(optionKey)?.find(opt => opt.symbol === symbol);
+
+      if (todayOpt) {
+        value += todayOpt.price * quantity * 100;
+        continue;
+      }
+
+      // If expired, realize intrinsic and remove the position
+      const today = new Date(this.currentDate);
+      const expiry = new Date(expiryStr);
+      if (today > expiry) {
+        const strike = Number(strikeStr);
+        const md = this.marketData.get(underlying) || [];
+        const atExp = md.find(m => m.date === expiryStr);
+        if (atExp) {
+          const intrinsic =
+            typeStr === "CALL" ? Math.max(0, atExp.price - strike)
+            : typeStr === "PUT"  ? Math.max(0, strike - atExp.price)
+            : 0;
+          value += intrinsic * quantity * 100;
+        }
+        this.portfolio.delete(symbol); // drop expired
       }
     }
     
@@ -516,7 +537,10 @@ class BacktestEngine {
   }
   
   private calculateMetrics(dailyPnL: { date: string; pnl: number; cumPnL: number }[]): PortfolioMetrics {
-    const returns = dailyPnL.map(d => d.pnl / this.config.initialCapital);
+    const returns: number[] = dailyPnL.map((d, i) => {
+      const prevEquity = this.config.initialCapital + (i > 0 ? dailyPnL[i-1].cumPnL : 0);
+      return prevEquity > 0 ? d.pnl / prevEquity : 0;
+    });
     const finalValue = this.config.initialCapital + dailyPnL[dailyPnL.length - 1].cumPnL;
     
     // Total return

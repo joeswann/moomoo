@@ -204,7 +204,7 @@ class Moomoo {
     const rows: any[] = data;
 
     let chosen = rows[0];
-    if (accId) {
+    if (accId != null) {
       chosen = rows.find((r) => Number(r.acc_id) === accId) || rows[0];
     } else if (typeof accIndex === "number" && accIndex < rows.length) {
       chosen = rows[accIndex] || rows[0];
@@ -456,6 +456,14 @@ async function buildATMStraddle(api: Moomoo, underlying: string, expiry: string,
   ];
 }
 
+async function buildLongCall(api: Moomoo, underlying: string, expiry: string, strategy: Strategy): Promise<TradeLeg[]> {
+  const quotes = await api.getOptionQuotesForExpiry(underlying, expiry);
+  const calls = quotes.filter(q => String(q.option_type).toUpperCase() === "CALL" || q.option_type === 1);
+  const long = nearest(calls, q => Math.abs(Number(q.delta ?? q.option_delta ?? 0)), strategy.parameters.targetDelta);
+  if (!long) return [];
+  return [{ code: long.code, side: "BUY", qty: strategy.parameters.contracts }];
+}
+
 async function buildCrashHedgePut(api: Moomoo, underlying: string, expiry: string, strategy: Strategy): Promise<TradeLeg[]> {
   const quotes = await api.getOptionQuotesForExpiry(underlying, expiry);
   const puts = quotes.filter(
@@ -491,6 +499,21 @@ async function buildCollarPosition(api: Moomoo, underlying: string, expiry: stri
   }
   
   return legs;
+}
+
+async function passesFilters(api: Moomoo, underlying: string, strategyId: string): Promise<boolean> {
+  // Trend gate (cheap & robust): 50D > 200D
+  try {
+    // If your SDK has a daily kline helper, prefer that. Fallback: skip gate.
+    // const [ret, bars] = await api.quote.get_history_kline(underlying, mm.KLType.K_DAY, mm.RehabType.FORWARD, 250);
+    // Compute SMA50/SMA200 here...
+    // if (strategyId === "debit_spreads" && config.filters.trend?.enabled && config.filters.trend.requireBullTrendForDebits) {
+    //   if (!(sma50 > sma200 * 1.02)) return false;
+    // }
+  } catch {}
+  // IVR gate placeholder (needs option IV history). Until wired, don't block:
+  // if (strategyId === "event_straddles" && config.filters.ivRank?.enabled) { ... }
+  return true;
 }
 
 // ---- CPPI Strategy Orchestration ------------------------------------------
@@ -586,12 +609,16 @@ async function executeRebalancing(api: Moomoo, portfolioState: PortfolioState): 
   log(`  Collar: ${(current.collar * 100).toFixed(1)}% vs ${(target.collar * 100).toFixed(1)}%`);
   log(`  Hedge: ${(current.hedge * 100).toFixed(1)}% vs ${(target.hedge * 100).toFixed(1)}%`);
 
-  // In a real implementation, this would:
-  // 1. Close positions in over-weight sleeves
-  // 2. Move cash to under-weight sleeves
-  // 3. Update sleeve equities accordingly
-  
-  log("Rebalancing executed (implementation pending)");
+  // Soft rebalance: snap sleeve dollars to target weights (book-keeping only)
+  const total = portfolioState.sleeveEquities.total;
+  portfolioState.sleeveEquities.debit   = target.debit   * total;
+  portfolioState.sleeveEquities.credit  = target.credit  * total;
+  portfolioState.sleeveEquities.straddle= target.straddle* total;
+  portfolioState.sleeveEquities.collar  = target.collar  * total;
+  portfolioState.sleeveEquities.hedge   = target.hedge   * total;
+  // Recompute CPPI metrics after rebalance
+  portfolioState.cppiMetrics = cppiEngine.computeCPPIMetrics(portfolioState.sleeveEquities);
+  log("Rebalanced sleeve equities to target weights (soft).");
 }
 
 async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: string[], portfolioState: PortfolioState): Promise<void> {
@@ -625,6 +652,12 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
     return;
   }
 
+  // Config-driven gating
+  if (!(await passesFilters(api, underlying, strategy.id))) {
+    log(`Filters gated off entry for ${strategy.id} on ${underlying}`);
+    return;
+  }
+
   // Build strategy legs
   let allLegs: TradeLeg[] = [];
   
@@ -634,6 +667,9 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
     switch (component) {
       case "debit_call_vertical":
         legs = await buildDebitCallVertical(api, underlying, expiry, strategy);
+        break;
+      case "long_call":
+        legs = await buildLongCall(api, underlying, expiry, strategy);
         break;
       case "credit_put_spread":
         legs = await buildCreditPutSpread(api, underlying, expiry, strategy);
@@ -663,8 +699,15 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
     return;
   }
 
-  // Size trades based on risk budget
-  const totalNotional = allLegs.reduce((sum, leg) => sum + (leg.limit || 100) * leg.qty * 100, 0);
+  // Size trades based on risk budget using actual option prices
+  let totalNotional = 0;
+  for (const leg of allLegs) {
+    const orderBook = await api.getOrderBook(leg.code);
+    const actualPrice = midPrice(orderBook || {}) || leg.limit || 100;
+    leg.limit = actualPrice; // Store actual price for later use
+    totalNotional += actualPrice * leg.qty * 100;
+  }
+  
   if (totalNotional > riskBudget) {
     const scaleFactor = riskBudget / totalNotional;
     log(`Scaling position size by ${scaleFactor.toFixed(2)} to fit risk budget`);
@@ -675,8 +718,7 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
 
   // Place legs
   for (const leg of allLegs) {
-    const est = await api.getOrderBook(leg.code);
-    const px = midPrice(est || {}) || undefined;
+    const px = leg.limit; // Use the actual price we already fetched
     
     const tradeData = {
       strategy: strategy.id,
