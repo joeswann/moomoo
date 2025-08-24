@@ -7,7 +7,7 @@ WORKDIR /app
 COPY deno.json deno.lock* ./
 
 # Cache dependencies
-RUN deno cache --node-modules-dir main.ts
+RUN deno cache --node-modules-dir main-cppi.ts
 
 # Copy source code
 COPY . .

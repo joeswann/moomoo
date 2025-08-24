@@ -37,17 +37,19 @@ async function getDashboardData(): Promise<DashboardData> {
     }
 
     // Get backtest results
-    for await (const entry of Deno.readDir("./data")) {
-      if (entry.name.startsWith("backtest_") && entry.name.endsWith(".json")) {
-        try {
-          const result = JSON.parse(await Deno.readTextFile(`./data/${entry.name}`));
-          data.backtest_results.push({
-            filename: entry.name,
-            metrics: result.metrics,
-            config: result.config
-          });
-        } catch {
-          // Skip invalid JSON files
+    if (existsSync("./data")) {
+      for await (const entry of Deno.readDir("./data")) {
+        if (entry.name.startsWith("backtest_") && entry.name.endsWith(".json")) {
+          try {
+            const result = JSON.parse(await Deno.readTextFile(`./data/${entry.name}`));
+            data.backtest_results.push({
+              filename: entry.name,
+              metrics: result.metrics,
+              config: result.config
+            });
+          } catch {
+            // Skip invalid JSON files
+          }
         }
       }
     }

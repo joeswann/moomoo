@@ -546,7 +546,7 @@ class BacktestEngine {
     }
     
     // Calculate actual P&L from trades
-    const tradeP&L: number[] = [];
+    const tradePnL: number[] = [];
     const tradesByStrategy = new Map<string, number[]>();
     
     for (const trade of this.trades) {
@@ -575,18 +575,18 @@ class BacktestEngine {
           pnl = (Math.random() - 0.45) * premium * qty * 100; // Slight positive bias
       }
       
-      tradeP&L.push(pnl);
+      tradePnL.push(pnl);
       if (!tradesByStrategy.has(trade.strategy)) {
         tradesByStrategy.set(trade.strategy, []);
       }
       tradesByStrategy.get(trade.strategy)!.push(pnl);
     }
     
-    const profitableTrades = tradeP&L.filter(pnl => pnl > 0);
+    const profitableTrades = tradePnL.filter(pnl => pnl > 0);
     const winRate = this.trades.length > 0 ? profitableTrades.length / this.trades.length : 0;
     
     const totalProfit = profitableTrades.reduce((sum, pnl) => sum + pnl, 0);
-    const totalLoss = Math.abs(tradeP&L.filter(pnl => pnl < 0).reduce((sum, pnl) => sum + pnl, 0));
+    const totalLoss = Math.abs(tradePnL.filter(pnl => pnl < 0).reduce((sum, pnl) => sum + pnl, 0));
     const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
     
     return {
@@ -681,13 +681,12 @@ ${trades.slice(0, 5).map(trade =>
 // ---- CLI Interface ---------------------------------------------------------
 async function main(): Promise<void> {
   const flags = parse(Deno.args, {
-    string: ["start-date", "end-date", "strategies", "universe"],
-    number: ["capital"],
+    string: ["start-date", "end-date", "strategies", "universe", "capital"],
     boolean: ["help"],
     default: {
       "start-date": "2023-01-01",
       "end-date": "2023-12-31",
-      capital: 10000,
+      capital: "10000",
       strategies: "debit_call_vertical,credit_put_spread,atm_straddle",
       universe: "US.SPY,US.QQQ,US.IWM",
     },
@@ -723,7 +722,7 @@ Example:
   const config: BacktestConfig = {
     startDate: flags["start-date"],
     endDate: flags["end-date"],
-    initialCapital: flags.capital,
+    initialCapital: Number(flags.capital),
     universe: flags.universe.split(","),
     strategies: flags.strategies.split(","),
     dataSource: "mock",

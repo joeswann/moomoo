@@ -179,7 +179,7 @@ class Moomoo {
     }
   }
 
-  async getAccount(strategy?: Strategy): Promise<{ accId: number; trdEnv: string; trdMarket: number }> {
+  async getAccount(strategy?: Strategy): Promise<{ accId: number; trdEnv: number; trdMarket: number }> {
     const trdEnv = config.trading.environment === "REAL" ? mm.TrdEnv.REAL : mm.TrdEnv.SIMULATE;
     
     let accId: number | null, accIndex: number;
@@ -697,7 +697,7 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
   log(`Estimated fee per contract: $${feePer.toFixed(2)}`);
 }
 
-function getSleeveType(strategyId: string): keyof SleeveEquities | null {
+function getSleeveType(strategyId: string): keyof SleeveWeights | null {
   switch (strategyId) {
     case "debit_spreads": return "debit";
     case "credit_spreads": return "credit";

@@ -2,6 +2,31 @@
 
 This guide explains how to configure the bot for the 5-sleeve CPPI options strategy.
 
+## OpenD Connection
+
+```bash
+MOOMOO_HOST=127.0.0.1
+MOOMOO_PORT=11111
+TRD_ENV=SIMULATE   # or REAL
+DRY_RUN=true
+```
+
+**Note**: OpenD must be running and logged in to your Moomoo account.
+
+## Environment Variables
+
+**Local runs**: export env vars in your shell (or use a tool like direnv to load .env). The app itself does not parse .env files - only Docker Compose mounts them.
+
+```bash
+# Manual export
+export DEBIT_SPREADS_ACC_ID=12345
+export TRD_ENV=SIMULATE
+
+# Or use direnv with .envrc
+echo 'source_env .env' > .envrc
+direnv allow
+```
+
 ## Account Setup
 
 ### Single account (default)
@@ -22,6 +47,11 @@ COLLAR_EQUITY_ACC_INDEX=0
 CRASH_HEDGE_ACC_INDEX=0
 ```
 
+**Tip**: You can also set a single fallback with `ACC_ID_1` / `ACC_INDEX_1` and omit per-strategy vars.
+
+**Precedence**: `DEBIT_SPREADS_ACC_ID` > `ACC_ID_1` > `strategy.account.id` in config.json.  
+Same for `*_ACC_INDEX`. If an ID is provided, index is ignored.
+
 ### Multi-account (per-sleeve)
 ```bash
 DEBIT_SPREADS_ACC_ID=12345
@@ -29,6 +59,13 @@ CREDIT_SPREADS_ACC_ID=12346
 EVENT_STRADDLES_ACC_ID=12347
 COLLAR_EQUITY_ACC_ID=12348
 CRASH_HEDGE_ACC_ID=12349
+```
+
+### Via Config CLI (Alternative)
+```bash
+deno task config set-account --strategy debit_spreads --id 12345
+deno task config set-account --strategy credit_spreads --index 1
+deno task config list
 ```
 
 ### Run commands
@@ -57,9 +94,9 @@ console.log("Available accounts:", accounts);
 ```
 
 ### Via Bot Logs
-1. Run the bot in single account mode
-2. Check logs for "Available accounts" messages
-3. Note the account IDs shown
+1. Run the bot and check logs
+2. Look for "Using strategy-specific account ..." and "Using account:" lines
+3. Note the account IDs shown for each strategy
 
 ## Account Types & Strategy Matching
 
@@ -67,7 +104,7 @@ console.log("Available accounts:", accounts);
 
 | Sleeve | Typical Account | Risk | Notes |
 |--------|----------------|------|-------|
-| Debit Spreads | Margin | Medium | Defined risk; uses ~0.30Δ long, $5–$10 width |
+| Debit Spreads | Margin | Medium | Defined risk; uses ~0.30Δ long, $5–$25 width (wider in aggressive modes) |
 | Credit Spreads | Cash/Margin | Low–Med | 0.20–0.25Δ short put, $5 width, roll on threat |
 | Event Straddles | Margin | High | ATM, 7–21 DTE around events, monthly cadence |
 | Collar Equity | Cash/Margin | Low | ETF + short call + long put, near-zero net cost |
@@ -76,11 +113,11 @@ console.log("Available accounts:", accounts);
 ### Capital Allocation Example
 
 For a $50,000 total allocation:
-- Strategy 1 (Barbell): $12,000 (24%)
-- Strategy 2 (Income): $10,000 (20%)  
-- Strategy 3 (Volatility): $8,000 (16%)
-- Strategy 4 (Wheel): $15,000 (30%)
-- Strategy 5 (Mixed): $5,000 (10%)
+- Debit Spreads: $12,000 (24%)
+- Credit Spreads: $5,000 (10%)
+- Event Straddles: $8,000 (16%)
+- Collar Equity: $24,000 (48%)
+- Crash Hedge: $1,000 (2%)
 
 ## Configuration Examples
 
@@ -140,9 +177,9 @@ deno task start | grep "Using account"
 ### Account Verification Script
 The bot will log which account each strategy uses:
 ```
-2024-01-15 10:30:00 - Using multi-account mode: Account 1 for barbell_convex
+2024-01-15 10:30:00 - Using strategy-specific account for debit_spreads: ID=12345, Index=0
 2024-01-15 10:30:00 - Using account: 12345 env: SIMULATE market: 1
-2024-01-15 10:30:15 - Using multi-account mode: Account 2 for balanced_income  
+2024-01-15 10:30:15 - Using strategy-specific account for credit_spreads: ID=12346, Index=0
 2024-01-15 10:30:15 - Using account: 12346 env: SIMULATE market: 1
 ```
 
@@ -161,9 +198,10 @@ The bot will log which account each strategy uses:
    - Ensure accounts are properly funded
 
 3. **Wrong account being used**
-   - Check MULTI_ACCOUNT_MODE setting
-   - Verify ACC_ID_X values
-   - Check for typos in environment variables
+   - Verify `DEBIT_SPREADS_ACC_ID`, `CREDIT_SPREADS_ACC_ID`, etc.
+   - Remember: if both ID and index are set, ID wins
+   - If unset, the bot falls back to `ACC_ID_1`/`ACC_INDEX_1` by strategy order
+   - Run `deno task config list` to confirm each strategy's account mapping
 
 ### Debug Commands
 ```bash

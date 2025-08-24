@@ -177,7 +177,7 @@ const commands: CLICommand[] = [
         console.log(`   - $${config.getTotalWeeklySpendLimit()} total weekly limit`);
       } catch (error) {
         console.error("❌ Configuration validation failed:");
-        console.error(error.message);
+        console.error((error as Error).message);
       }
     }
   },
@@ -258,7 +258,7 @@ const commands: CLICommand[] = [
         }
         
       } catch (error) {
-        console.error(`❌ Failed to switch preset: ${error.message}`);
+        console.error(`❌ Failed to switch preset: ${(error as Error).message}`);
       }
     }
   }
@@ -306,8 +306,7 @@ Common Options:
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    string: ["strategy", "id", "index", "name", "description", "components", "path", "mode"],
-    number: ["delta", "shortDelta", "contracts", "dte", "dteMin", "dteMax", "width", "maxSpend", "maxSize", "maxTrades", "accountId", "accountIndex"],
+    string: ["strategy", "id", "index", "name", "description", "components", "path", "mode", "delta", "shortDelta", "contracts", "dte", "dteMin", "dteMax", "width", "maxSpend", "maxSize", "maxTrades", "accountId", "accountIndex"],
     boolean: ["help", "enabled"],
     alias: {
       h: "help",
@@ -333,7 +332,7 @@ async function main(): Promise<void> {
   try {
     await command.handler(args);
   } catch (error) {
-    console.error(`❌ Error executing command: ${error.message}`);
+    console.error(`❌ Error executing command: ${(error as Error).message}`);
     Deno.exit(1);
   }
 }
