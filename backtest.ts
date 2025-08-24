@@ -371,14 +371,20 @@ class BacktestEngine {
     }
   }
   
+  private nearestBy<T>(arr: T[], metric: (x: T) => number, target: number): T | undefined {
+    return arr.reduce((best, x) => 
+      Math.abs(metric(x) - target) < Math.abs(metric(best) - target) ? x : best
+    );
+  }
+
   private buildDebitCallVertical(options: OptionData[]): { symbol: string; side: "BUY" | "SELL"; quantity: number; price: number }[] {
-    const calls = options.filter(opt => opt.optionType === "CALL" && opt.delta && Math.abs(opt.delta) > 0.25);
+    const calls = options.filter(opt => opt.optionType === "CALL" && opt.delta != null);
     if (calls.length < 2) return [];
     
-    // Sort by delta and pick long/short legs
-    calls.sort((a, b) => (b.delta || 0) - (a.delta || 0));
-    const longCall = calls[0];
-    const shortCall = calls.find(c => c.strike > longCall.strike) || calls[1];
+    const longCall = this.nearestBy(calls, o => Math.abs(o.delta!), 0.30);
+    if (!longCall) return [];
+    const shortCall = calls.find(c => c.strike > longCall.strike) || this.nearestBy(calls, c => c.strike, longCall.strike + 5);
+    if (!shortCall) return [];
     
     return [
       { symbol: longCall.symbol, side: "BUY", quantity: 1, price: longCall.price },
@@ -387,12 +393,13 @@ class BacktestEngine {
   }
   
   private buildCreditPutSpread(options: OptionData[]): { symbol: string; side: "BUY" | "SELL"; quantity: number; price: number }[] {
-    const puts = options.filter(opt => opt.optionType === "PUT" && opt.delta && Math.abs(opt.delta) > 0.15);
+    const puts = options.filter(opt => opt.optionType === "PUT" && opt.delta != null);
     if (puts.length < 2) return [];
     
-    puts.sort((a, b) => Math.abs(b.delta || 0) - Math.abs(a.delta || 0));
-    const shortPut = puts[0];
-    const longPut = puts.find(p => p.strike < shortPut.strike) || puts[1];
+    const shortPut = this.nearestBy(puts, o => Math.abs(o.delta!), 0.22); // ~0.20-0.25 band
+    if (!shortPut) return [];
+    const longPut = this.nearestBy(puts, o => o.strike, shortPut.strike - 5);
+    if (!longPut) return [];
     
     return [
       { symbol: shortPut.symbol, side: "SELL", quantity: 1, price: shortPut.price },
@@ -431,10 +438,11 @@ class BacktestEngine {
   }
   
   private buildCrashHedge(options: OptionData[]): { symbol: string; side: "BUY" | "SELL"; quantity: number; price: number }[] {
-    const puts = options.filter(opt => opt.optionType === "PUT" && opt.delta && Math.abs(opt.delta) < 0.1);
-    if (puts.length === 0) return [];
+    const hedgeUniverse = options.filter(opt => opt.optionType === "PUT" && opt.delta != null);
+    if (hedgeUniverse.length === 0) return [];
     
-    const hedgePut = puts[Math.floor(Math.random() * puts.length)];
+    const hedgePut = this.nearestBy(hedgeUniverse, o => Math.abs(o.delta!), 0.08);
+    if (!hedgePut) return [];
     return [{ symbol: hedgePut.symbol, side: "BUY", quantity: 1, price: hedgePut.price }];
   }
   

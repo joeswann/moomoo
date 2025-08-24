@@ -1,73 +1,44 @@
 # Account Configuration Guide
 
-This guide explains how to configure the bot for single or multiple trading accounts.
+This guide explains how to configure the bot for the 5-sleeve CPPI options strategy.
 
-## Two Operating Modes
+## Account Setup
 
-### 🎯 Single Account Mode (Default)
-All 5 strategies execute on one account - simpler setup, good for testing or smaller capital.
+### Single account (default)
+All 5 sleeves run on one account.
 
-### 🎯 Multi-Account Mode  
-Each strategy uses its own dedicated account - better risk isolation, ideal for larger operations.
-
-## Single Account Setup
-
-1. **Set mode in `.env`:**
-   ```bash
-   MULTI_ACCOUNT_MODE=false
-   ACC_ID=12345      # Your account ID (preferred)
-   # OR
-   ACC_INDEX=0       # Account index (fallback)
-   ```
-
-2. **All strategies will execute on this account:**
-   - Strategy 1: Barbell Convex
-   - Strategy 2: Balanced Income  
-   - Strategy 3: Volatility Bet
-   - Strategy 4: Wheel Strategy
-   - Strategy 5: Mixed Bets
-
-## Multi-Account Setup
-
-### Method 1: Interactive Setup
 ```bash
-make setup-multi-accounts
+# choose a single account by id or index
+DEBIT_SPREADS_ACC_ID=12345
+CREDIT_SPREADS_ACC_ID=12345
+EVENT_STRADDLES_ACC_ID=12345
+COLLAR_EQUITY_ACC_ID=12345
+CRASH_HEDGE_ACC_ID=12345
+# or use indexes if ids are unknown
+DEBIT_SPREADS_ACC_INDEX=0
+CREDIT_SPREADS_ACC_INDEX=0
+EVENT_STRADDLES_ACC_INDEX=0
+COLLAR_EQUITY_ACC_INDEX=0
+CRASH_HEDGE_ACC_INDEX=0
 ```
 
-This will prompt you to:
-- Enable multi-account mode
-- Enter account IDs for each strategy
-- Configure automatically
+### Multi-account (per-sleeve)
+```bash
+DEBIT_SPREADS_ACC_ID=12345
+CREDIT_SPREADS_ACC_ID=12346
+EVENT_STRADDLES_ACC_ID=12347
+COLLAR_EQUITY_ACC_ID=12348
+CRASH_HEDGE_ACC_ID=12349
+```
 
-### Method 2: Manual Configuration
+### Run commands
 
-1. **Enable multi-account mode in `.env`:**
-   ```bash
-   MULTI_ACCOUNT_MODE=true
-   ```
-
-2. **Configure individual accounts:**
-   ```bash
-   # Strategy 1: Barbell Convex (Debit call vertical + Crash hedge)
-   ACC_ID_1=12345
-   ACC_INDEX_1=0
-   
-   # Strategy 2: Balanced Income (Credit put spread)
-   ACC_ID_2=12346
-   ACC_INDEX_2=1
-   
-   # Strategy 3: Volatility Bet (ATM straddle)
-   ACC_ID_3=12347
-   ACC_INDEX_3=2
-   
-   # Strategy 4: Wheel Strategy (Cash-secured puts)
-   ACC_ID_4=12348
-   ACC_INDEX_4=3
-   
-   # Strategy 5: Mixed Small Bets (Alternating strategies)
-   ACC_ID_5=12349
-   ACC_INDEX_5=4
-   ```
+```bash
+deno task config list
+deno task start       # main.ts (CPPI)
+deno task backtest    # synthetic backtest
+deno task dashboard   # http://localhost:8080
+```
 
 ## Finding Your Account IDs
 
@@ -92,15 +63,15 @@ console.log("Available accounts:", accounts);
 
 ## Account Types & Strategy Matching
 
-### Recommended Account Types by Strategy
+### Recommended Account Types by Sleeve
 
-| Strategy | Account Type | Capital Requirements | Risk Level |
-|----------|-------------|---------------------|------------|
-| **Barbell Convex** | Margin | Medium-High | Medium |
-| **Balanced Income** | Cash/Margin | Medium | Low |
-| **Volatility Bet** | Margin | High | High |
-| **Wheel Strategy** | Cash | High | Low-Medium |
-| **Mixed Bets** | Margin | Low-Medium | Medium |
+| Sleeve | Typical Account | Risk | Notes |
+|--------|----------------|------|-------|
+| Debit Spreads | Margin | Medium | Defined risk; uses ~0.30Δ long, $5–$10 width |
+| Credit Spreads | Cash/Margin | Low–Med | 0.20–0.25Δ short put, $5 width, roll on threat |
+| Event Straddles | Margin | High | ATM, 7–21 DTE around events, monthly cadence |
+| Collar Equity | Cash/Margin | Low | ETF + short call + long put, near-zero net cost |
+| Crash Hedge | Cash/Margin | Medium | 5–8Δ puts, continuous weekly budget |
 
 ### Capital Allocation Example
 
@@ -115,45 +86,41 @@ For a $50,000 total allocation:
 
 ### Example 1: Conservative Single Account
 ```bash
-MULTI_ACCOUNT_MODE=false
-ACC_ID=12345
+DEBIT_SPREADS_ACC_ID=12345
+CREDIT_SPREADS_ACC_ID=12345
+EVENT_STRADDLES_ACC_ID=12345
+COLLAR_EQUITY_ACC_ID=12345
+CRASH_HEDGE_ACC_ID=12345
 TRD_ENV=SIMULATE
 DRY_RUN=true
-WEEKLY_SPEND_USD=100
-CONTRACTS=1
 ```
 
 ### Example 2: Multi-Account Production
 ```bash
-MULTI_ACCOUNT_MODE=true
 TRD_ENV=REAL
 DRY_RUN=false
 
-# High-risk strategies on margin accounts
-ACC_ID_1=12345  # Margin account for barbell
-ACC_ID_3=12347  # Margin account for volatility
+# High-risk sleeves on margin accounts
+DEBIT_SPREADS_ACC_ID=12345  # Margin account
+EVENT_STRADDLES_ACC_ID=12347  # Margin account
 
-# Conservative strategies on cash accounts  
-ACC_ID_2=12346  # Cash account for income
-ACC_ID_4=12348  # Cash account for wheel
-ACC_ID_5=12349  # Small margin account for mixed
-
-WEEKLY_SPEND_USD=500
-CONTRACTS=2
+# Conservative sleeves on cash accounts  
+CREDIT_SPREADS_ACC_ID=12346  # Cash account
+COLLAR_EQUITY_ACC_ID=12348  # Cash account
+CRASH_HEDGE_ACC_ID=12349  # Small margin account
 ```
 
-### Example 3: Paper Trading All Strategies
+### Example 3: Paper Trading All Sleeves
 ```bash
-MULTI_ACCOUNT_MODE=true
 TRD_ENV=SIMULATE
 DRY_RUN=true
 
-# All using same simulated account but different indexes
-ACC_INDEX_1=0
-ACC_INDEX_2=0  
-ACC_INDEX_3=0
-ACC_INDEX_4=0
-ACC_INDEX_5=0
+# All using same simulated account
+DEBIT_SPREADS_ACC_INDEX=0
+CREDIT_SPREADS_ACC_INDEX=0
+EVENT_STRADDLES_ACC_INDEX=0
+COLLAR_EQUITY_ACC_INDEX=0
+CRASH_HEDGE_ACC_INDEX=0
 ```
 
 ## Validation & Testing
@@ -161,13 +128,13 @@ ACC_INDEX_5=0
 ### Check Your Configuration
 ```bash
 # Validate environment
-make check-env
+deno task config validate
 
 # Test with simulation
-make simulate
+deno task start
 
 # View which accounts are being used
-make logs | grep "Using account"
+deno task start | grep "Using account"
 ```
 
 ### Account Verification Script
@@ -200,14 +167,14 @@ The bot will log which account each strategy uses:
 
 ### Debug Commands
 ```bash
-# Check environment variables
-make check-env
+# Check configuration
+deno task config list
 
 # View account configuration
 grep ACC_ .env
 
 # Test connection and accounts
-make simulate | grep account
+deno task start | grep account
 ```
 
 ## Security Considerations
@@ -229,7 +196,7 @@ make simulate | grep account
 
 ## Next Steps
 
-1. **Test Configuration**: `make simulate`
-2. **Monitor Logs**: `make logs`
-3. **View Dashboard**: `make docker-run` then visit http://localhost:8080
+1. **Test Configuration**: `deno task start`
+2. **Monitor Logs**: Check data/logs/
+3. **View Dashboard**: `deno task dashboard` then visit http://localhost:8080
 4. **Gradual Rollout**: Start with paper trading, then small positions

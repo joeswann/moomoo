@@ -38,6 +38,18 @@ export interface SleeveWeights {
   hedge: number;
 }
 
+export interface SleeveDollars {
+  debit: number;
+  credit: number;
+  straddle: number;
+  collar: number;
+  hedge: number;
+}
+
+export function isFiniteNum(n: number): boolean {
+  return Number.isFinite(n) && !Number.isNaN(n);
+}
+
 export interface SleeveEquities {
   debit: number;
   credit: number;
@@ -146,7 +158,7 @@ export class CPPIEngine {
     return false;
   }
 
-  computeContributionsAllocation(targetWeights: SleeveWeights, currentEquities: SleeveEquities, weeklyDeposit: number): SleeveWeights {
+  computeContributionsAllocation(targetWeights: SleeveWeights, currentEquities: SleeveEquities, weeklyDeposit: number): SleeveDollars {
     const targetTotalAfterDeposit = currentEquities.total + weeklyDeposit;
     const targetDollars = {
       debit: targetWeights.debit * targetTotalAfterDeposit,

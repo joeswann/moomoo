@@ -15,7 +15,7 @@ import { existsSync } from "std/fs/mod.ts";
 // @ts-ignore: npm module without types
 import * as mm from "moomoo-api";
 import { ConfigManager, Strategy, TradingConfig } from "./config.ts";
-import { CPPIEngine, SleeveEquities, SleeveWeights, CPPIMetrics } from "./cppi.ts";
+import { CPPIEngine, SleeveEquities, SleeveWeights, SleeveDollars, CPPIMetrics } from "./cppi.ts";
 
 // ---- Global Configuration --------------------------------------------------
 const configManager = await ConfigManager.createDefault();
@@ -250,6 +250,12 @@ class Moomoo {
     return codes.slice(0, maxN);
   }
 
+  isThirdFriday(d: Date): boolean {
+    const day = d.getDay();               // 5 = Friday
+    const date = d.getDate();
+    return day === 5 && date >= 15 && date <= 21;
+  }
+
   async getMonthlyExpiry(code: string, strategy?: Strategy): Promise<string | undefined> {
     const [ret, dates] = await this.quote.get_option_expiration_date(code);
     if (ret !== mm.RET_OK) return undefined;
@@ -259,12 +265,23 @@ class Moomoo {
     const dteTarget = strategy?.parameters.dteTarget ?? 28;
     
     const now = new Date();
-    const inRange: string[] = [];
-    for (const d of dates as any[]) {
-      const t = new Date(d);
-      const dte = Math.round((t.getTime() - now.getTime()) / (1000 * 3600 * 24));
-      if (dte >= dteMin && dte <= dteMax) inRange.push(d);
+    const inRange = (dates as string[])
+      .map(s => new Date(s))
+      .filter(d => {
+        const dte = Math.round((d.getTime() - now.getTime()) / 86400000);
+        return dte >= dteMin && dte <= dteMax && this.isThirdFriday(d);
+      })
+      .map(d => d.toISOString().slice(0,10));
+      
+    if (inRange.length === 0) {
+      // Fallback to any expiry in range if no third Fridays found
+      for (const d of dates as any[]) {
+        const t = new Date(d);
+        const dte = Math.round((t.getTime() - now.getTime()) / (1000 * 3600 * 24));
+        if (dte >= dteMin && dte <= dteMax) inRange.push(d);
+      }
     }
+    
     const pick = nearest(inRange, (s) => {
       const t = new Date(s);
       return Math.abs((t.getTime() - now.getTime()) / (1000 * 3600 * 24));
@@ -298,6 +315,39 @@ class Moomoo {
     const [ret, ob] = await this.quote.get_order_book(code, 5);
     if (ret !== mm.RET_OK) return null;
     return (ob as any[])[0];
+  }
+
+  async legMid(code: string): Promise<number> {
+    const ob = await this.getOrderBook(code);
+    const [, q] = await this.quote.get_stock_quote([code]);
+    const last = Number((q as any[])[0]?.last_price || 0);
+    const mid = midPrice(ob || {}) ?? (last || 0);
+    return Math.max(0, mid);
+  }
+
+  async estimateRiskUSD(legs: TradeLeg[], component: string, width: number): Promise<number> {
+    const px: Record<string, number> = {};
+    for (const l of legs) if (!(l.code in px)) px[l.code] = await this.legMid(l.code);
+
+    const mult = 100;
+    if (component === "debit_call_vertical") {
+      const buy = legs.find(l => l.side==="BUY")!; const sell = legs.find(l => l.side==="SELL")!;
+      const netDebit = Math.max(0, px[buy.code] - px[sell.code]);
+      return netDebit * buy.qty * mult;
+    }
+    if (component === "credit_put_spread") {
+      const sell = legs.find(l => l.side==="SELL")!; const buy = legs.find(l => l.side==="BUY")!;
+      const credit = Math.max(0, px[sell.code] - px[buy.code]);
+      return Math.max(0, (width - credit)) * sell.qty * mult;
+    }
+    if (component === "atm_straddle") {
+      const prem = legs.reduce((s,l) => s + (l.side==="BUY" ? px[l.code]*l.qty : 0), 0);
+      return prem * mult;
+    }
+    if (component === "crash_hedge_put") {
+      const buy = legs[0]; return px[buy.code] * buy.qty * mult;
+    }
+    return 0;
   }
 
   async estimateFeeUSDPerContract(acc: { accId: number; trdEnv: any }): Promise<number> {
@@ -548,7 +598,7 @@ function shouldAllocateWeeklyDeposit(lastUpdate: Date): boolean {
 async function allocateWeeklyDeposit(portfolioState: PortfolioState): Promise<void> {
   log("--- Weekly Deposit Allocation ---");
   
-  const allocation = cppiEngine.computeContributionsAllocation(
+  const allocation: SleeveDollars = cppiEngine.computeContributionsAllocation(
     portfolioState.cppiMetrics.targetWeights,
     portfolioState.sleeveEquities,
     config.cppi.weeklyDeposit
@@ -663,11 +713,21 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
     return;
   }
 
-  // Size trades based on risk budget
-  const totalNotional = allLegs.reduce((sum, leg) => sum + (leg.limit || 100) * leg.qty * 100, 0);
-  if (totalNotional > riskBudget) {
-    const scaleFactor = riskBudget / totalNotional;
-    log(`Scaling position size by ${scaleFactor.toFixed(2)} to fit risk budget`);
+  // Size trades based on risk budget using actual risk estimation
+  let totalRisk = 0;
+  for (const component of strategy.components) {
+    const componentLegs = allLegs.filter((_, i) => {
+      // Simple mapping - could be improved with better tracking
+      return true; // For now, estimate risk for all legs together
+    });
+    const width = strategy.parameters.width || 5;
+    const risk = await api.estimateRiskUSD(componentLegs, component, width);
+    totalRisk += risk;
+  }
+  
+  if (totalRisk > riskBudget && totalRisk > 0) {
+    const scaleFactor = riskBudget / totalRisk;
+    log(`Scaling position size by ${scaleFactor.toFixed(2)} to fit risk budget (${totalRisk.toFixed(2)} -> ${riskBudget.toFixed(2)})`);
     allLegs.forEach(leg => {
       leg.qty = Math.max(1, Math.floor(leg.qty * scaleFactor));
     });

@@ -21,7 +21,7 @@ const commands: CLICommand[] = [
       const strategies = config.getConfig().strategies;
       
       console.log("\n📋 Strategy Configuration:");
-      console.log("=" .repeat(60));
+      console.log("=".repeat(60));
       
       strategies.forEach((strategy, index) => {
         const status = strategy.enabled ? "✅ ENABLED" : "❌ DISABLED";
@@ -125,6 +125,11 @@ const commands: CLICommand[] = [
       
       const config = await ConfigManager.createDefault();
       const strategies = config.getConfig().strategies;
+      
+      if (strategies.some(s => s.id === args.id)) {
+        console.error("❌ ID already exists");
+        return;
+      }
       
       const newStrategy = {
         id: args.id,
