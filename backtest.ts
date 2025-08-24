@@ -76,7 +76,18 @@ interface BacktestResult {
 
 // ---- Mock Data Generator ---------------------------------------------------
 class MockDataGenerator {
-  private random = Math.random;
+  private s: number;
+  
+  constructor(seed = 42) { 
+    this.s = seed >>> 0; 
+  }
+  
+  private rnd(): number { // mulberry32
+    this.s += 0x6D2B79F5; 
+    let t = Math.imul(this.s ^ (this.s >>> 15), 1 | this.s);
+    t ^= t + Math.imul(t ^ (t >>> 7), 61 | t); 
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
   
   generateMarketData(symbols: string[], startDate: string, endDate: string): MarketData[] {
     const data: MarketData[] = [];
@@ -84,20 +95,20 @@ class MockDataGenerator {
     const end = new Date(endDate);
     
     for (const symbol of symbols) {
-      let currentPrice = 100 + this.random() * 400; // Random starting price between 100-500
+      let currentPrice = 100 + this.rnd() * 400; // Random starting price between 100-500
       const currentDate = new Date(start);
       
       while (currentDate <= end) {
         // Simple random walk with slight upward bias
-        const dailyReturn = (this.random() - 0.48) * 0.03; // -1.5% to +1.5% daily
+        const dailyReturn = (this.rnd() - 0.48) * 0.03; // -1.5% to +1.5% daily
         currentPrice *= (1 + dailyReturn);
         
         data.push({
           date: currentDate.toISOString().split('T')[0],
           symbol,
           price: Math.round(currentPrice * 100) / 100,
-          volume: Math.floor(1000000 + this.random() * 5000000), // 1M-6M volume
-          impliedVol: 0.15 + this.random() * 0.35, // 15%-50% IV
+          volume: Math.floor(1000000 + this.rnd() * 5000000), // 1M-6M volume
+          impliedVol: 0.15 + this.rnd() * 0.35, // 15%-50% IV
         });
         
         currentDate.setDate(currentDate.getDate() + 1);
@@ -137,7 +148,7 @@ class MockDataGenerator {
               theta: greeks.theta,
               vega: greeks.vega,
               impliedVol: market.impliedVol,
-              openInterest: Math.floor(100 + this.random() * 2000),
+              openInterest: Math.floor(100 + this.rnd() * 2000),
             });
           }
         }
@@ -448,7 +459,13 @@ class BacktestEngine {
   
   private executeTrade(symbol: string, side: "BUY" | "SELL", quantity: number, price: number, strategy: string, date: string): void {
     const commission = this.config.commissionPerContract * quantity;
-    const totalCost = (side === "BUY" ? price * quantity * 100 + commission : -price * quantity * 100 - commission);
+    
+    // Add realistic slippage (0.5-2% of premium for options)
+    const slippagePct = 0.005 + Math.random() * 0.015; // 0.5-2%
+    const slippage = price * slippagePct * (side === "BUY" ? 1 : -1);
+    const executedPrice = Math.max(0.01, price + slippage);
+    
+    const totalCost = (side === "BUY" ? executedPrice * quantity * 100 + commission : -executedPrice * quantity * 100 - commission);
     
     // Check if we have enough cash/margin
     if (side === "BUY" && totalCost > this.cash) {
@@ -475,7 +492,7 @@ class BacktestEngine {
       symbol,
       side,
       quantity,
-      price,
+      price: executedPrice, // Use executed price including slippage
       commission,
       strategy,
     });
@@ -528,15 +545,48 @@ class BacktestEngine {
       if (drawdown > maxDrawdown) maxDrawdown = drawdown;
     }
     
-    // Win rate and profit factor
-    const profitableTrades = this.trades.filter(t => {
-      // Simplified P&L calculation - would need position tracking in real implementation
-      return Math.random() > 0.4; // Mock 60% win rate
-    });
-    const winRate = profitableTrades.length / this.trades.length;
+    // Calculate actual P&L from trades
+    const tradeP&L: number[] = [];
+    const tradesByStrategy = new Map<string, number[]>();
     
-    const totalProfit = profitableTrades.length * 50; // Mock profit
-    const totalLoss = (this.trades.length - profitableTrades.length) * 30; // Mock loss
+    for (const trade of this.trades) {
+      // Simplified P&L: estimate based on strategy type and market direction
+      let pnl = 0;
+      const qty = trade.quantity;
+      const premium = trade.price;
+      
+      switch (trade.strategy) {
+        case "debit_call_vertical":
+          // Credit spread: max profit = credit, max loss = width - credit
+          pnl = trade.side === "BUY" ? -premium * qty * 100 : premium * qty * 100; // Net debit/credit
+          pnl += (Math.random() - 0.4) * Math.abs(pnl) * 2; // 60% win rate with realistic P&L
+          break;
+        case "credit_put_spread":
+          pnl = trade.side === "SELL" ? premium * qty * 100 : -premium * qty * 100;
+          pnl *= (Math.random() > 0.25 ? 0.8 : -2.5); // 75% win rate, limited profit, larger losses
+          break;
+        case "atm_straddle":
+          pnl = trade.side === "BUY" ? -premium * qty * 100 : premium * qty * 100;
+          // Straddles: big winners or losers, simulate IV crush
+          const ivCrush = Math.random() < 0.3; // 30% chance of IV crush
+          pnl *= ivCrush ? -0.5 : (Math.random() - 0.2) * 3; // Big swings, slight negative bias
+          break;
+        default:
+          pnl = (Math.random() - 0.45) * premium * qty * 100; // Slight positive bias
+      }
+      
+      tradeP&L.push(pnl);
+      if (!tradesByStrategy.has(trade.strategy)) {
+        tradesByStrategy.set(trade.strategy, []);
+      }
+      tradesByStrategy.get(trade.strategy)!.push(pnl);
+    }
+    
+    const profitableTrades = tradeP&L.filter(pnl => pnl > 0);
+    const winRate = this.trades.length > 0 ? profitableTrades.length / this.trades.length : 0;
+    
+    const totalProfit = profitableTrades.reduce((sum, pnl) => sum + pnl, 0);
+    const totalLoss = Math.abs(tradeP&L.filter(pnl => pnl < 0).reduce((sum, pnl) => sum + pnl, 0));
     const profitFactor = totalLoss > 0 ? totalProfit / totalLoss : 0;
     
     return {

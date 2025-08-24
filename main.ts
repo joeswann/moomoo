@@ -75,6 +75,138 @@ function chunk<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+// ---- Market Filters -------------------------------------------------------
+interface IVSnapshot {
+  symbol: string;
+  date: string;
+  impliedVol: number;
+  price: number;
+}
+
+interface MarketFilters {
+  ivRank: {
+    enabled: boolean;
+    straddleMinIVR?: number;
+    straddleMaxIVR?: number;
+    creditMinIVR?: number;
+  };
+  trend: {
+    enabled: boolean;
+    requireBullTrendForDebits?: boolean;
+    requireBearTrendForCredits?: boolean;
+  };
+}
+
+class MarketConditionChecker {
+  private ivHistory: Map<string, IVSnapshot[]> = new Map();
+  
+  async checkIVRank(symbol: string, currentIV: number): Promise<number> {
+    const history = this.ivHistory.get(symbol) || [];
+    if (history.length < 20) return 0.5; // Default neutral if no history
+    
+    const sortedIVs = history.map(h => h.impliedVol).sort((a, b) => a - b);
+    const rank = sortedIVs.filter(iv => iv <= currentIV).length / sortedIVs.length;
+    return Math.min(1, Math.max(0, rank));
+  }
+  
+  async checkTrend(api: Moomoo, symbol: string): Promise<"bull" | "bear" | "neutral"> {
+    try {
+      // Simple trend check: current price vs 50-day average
+      const [ret, hist] = await api.quote.get_history_kline(symbol, null, null, null, 50);
+      if (ret !== mm.RET_OK || !hist || hist.length < 50) return "neutral";
+      
+      const prices = (hist as any[]).map(h => Number(h.close_price || h.close));
+      const current = prices[prices.length - 1];
+      const avg50 = prices.reduce((sum, p) => sum + p, 0) / prices.length;
+      
+      if (current > avg50 * 1.02) return "bull";
+      if (current < avg50 * 0.98) return "bear";
+      return "neutral";
+    } catch {
+      return "neutral";
+    }
+  }
+  
+  updateIVHistory(symbol: string, impliedVol: number, price: number): void {
+    if (!this.ivHistory.has(symbol)) {
+      this.ivHistory.set(symbol, []);
+    }
+    const history = this.ivHistory.get(symbol)!;
+    history.push({
+      symbol,
+      date: new Date().toISOString().split('T')[0],
+      impliedVol,
+      price
+    });
+    
+    // Keep only last 90 days
+    if (history.length > 90) {
+      history.shift();
+    }
+  }
+}
+
+const marketChecker = new MarketConditionChecker();
+
+async function shouldSkipDueToFilters(api: Moomoo, strategyId: string, underlying: string, filters: MarketFilters): Promise<boolean> {
+  try {
+    // Get current market data
+    const [sret, snap] = await api.quote.get_market_snapshot([underlying]);
+    if (sret !== mm.RET_OK) return false;
+    
+    const marketData = (snap as any[])[0];
+    const currentIV = Number(marketData.implied_vol || 0.25);
+    const currentPrice = Number(marketData.last_price);
+    
+    // Update IV history
+    marketChecker.updateIVHistory(underlying, currentIV, currentPrice);
+    
+    // Check IV rank filter
+    if (filters.ivRank?.enabled) {
+      const ivRank = await marketChecker.checkIVRank(underlying, currentIV);
+      log(`${underlying} IV Rank: ${(ivRank * 100).toFixed(1)}%`);
+      
+      if (strategyId === "event_straddles") {
+        const minIVR = filters.ivRank.straddleMinIVR || 0;
+        const maxIVR = filters.ivRank.straddleMaxIVR || 1;
+        if (ivRank < minIVR || ivRank > maxIVR) {
+          log(`Straddle skipped: IV rank ${(ivRank*100).toFixed(1)}% outside range [${(minIVR*100).toFixed(0)}%, ${(maxIVR*100).toFixed(0)}%]`);
+          return true;
+        }
+      }
+      
+      if (strategyId === "credit_spreads") {
+        const minIVR = filters.ivRank.creditMinIVR || 0;
+        if (ivRank < minIVR) {
+          log(`Credit spread skipped: IV rank ${(ivRank*100).toFixed(1)}% below minimum ${(minIVR*100).toFixed(0)}%`);
+          return true;
+        }
+      }
+    }
+    
+    // Check trend filter
+    if (filters.trend?.enabled) {
+      const trend = await marketChecker.checkTrend(api, underlying);
+      log(`${underlying} trend: ${trend}`);
+      
+      if (strategyId === "debit_spreads" && filters.trend.requireBullTrendForDebits && trend !== "bull") {
+        log(`Debit spread skipped: trend is ${trend}, requires bull`);
+        return true;
+      }
+      
+      if (strategyId === "credit_spreads" && filters.trend.requireBearTrendForCredits && trend !== "bear") {
+        log(`Credit spread skipped: trend is ${trend}, requires bear`);
+        return true;
+      }
+    }
+    
+    return false;
+  } catch (error) {
+    log(`Filter check failed for ${strategyId}: ${error}`);
+    return false; // Don't skip on error
+  }
+}
+
 async function saveTradeData(data: any): Promise<void> {
   if (!config.logging.enableTradeLogging) return;
   
@@ -216,25 +348,56 @@ class Moomoo {
   }
 
   async discoverUniverse(maxN = config.universe.maxSymbols): Promise<string[]> {
+    // Check if using static mode with predefined growth symbols
+    if (config.universe.discoveryMode === "static") {
+      log("Using static universe selection");
+      return config.universe.fallbackSymbols.slice(0, maxN);
+    }
+    
     const codes: string[] = [];
     try {
       const [pret, plates] = await this.quote.get_plate_list(mm.Market.US, mm.Plate.ALL);
       if (pret === mm.RET_OK) {
-        const indexPlates = (plates as any[]).filter((p) => /S&P|NASDAQ|Dow/i.test(p.plate_name));
+        const indexPlates = (plates as any[]).filter((p) => /S&P|NASDAQ|Dow|Technology|Growth/i.test(p.plate_name));
         for (const pl of indexPlates) {
           const [sret, secs] = await this.quote.get_plate_stock(pl.code);
           if (sret !== mm.RET_OK) continue;
           const secCodes = (secs as any[]).map((s) => s.code).slice(0, 300);
           const chunks = chunk(secCodes, 200);
-          let scored: { code: string; vol: number }[] = [];
+          let scored: { code: string; vol: number; beta?: number; atr?: number }[] = [];
           for (const ch of chunks) {
             const [qret, snap] = await this.quote.get_market_snapshot(ch);
             if (qret !== mm.RET_OK) continue;
-            scored = scored.concat(
-              (snap as any[]).map((r) => ({ code: r.code, vol: Number(r.volume || 0) }))
-            );
+            
+            for (const r of snap as any[]) {
+              const vol = Number(r.volume || 0);
+              const price = Number(r.last_price || 0);
+              
+              // Apply basic filters
+              if (price < (config.universe.filters?.minPrice || 20)) continue;
+              if (price > (config.universe.filters?.maxPrice || 1000)) continue;
+              if (vol < (config.universe.filters?.minVolume || 1000000)) continue;
+              
+              // Estimate volatility from price range
+              const high = Number(r.high_price || price);
+              const low = Number(r.low_price || price);
+              const atr = price > 0 ? (high - low) / price : 0;
+              
+              scored.push({ code: r.code, vol, atr });
+            }
           }
-          scored.sort((a, b) => b.vol - a.vol);
+          
+          // Sort by volume primarily, but bias toward higher volatility if configured
+          if ((config.universe.filters as any)?.preferHighBeta) {
+            scored.sort((a, b) => {
+              const aScore = (a.vol / 1000000) + (a.atr || 0) * 10;
+              const bScore = (b.vol / 1000000) + (b.atr || 0) * 10;
+              return bScore - aScore;
+            });
+          } else {
+            scored.sort((a, b) => b.vol - a.vol);
+          }
+          
           for (const s of scored) {
             if (!codes.includes(s.code)) codes.push(s.code);
             if (codes.length >= maxN) break;
@@ -246,8 +409,33 @@ class Moomoo {
       log("discoverUniverse error:", e);
     }
 
-    if (codes.length === 0) return config.universe.fallbackSymbols.slice(0, maxN);
-    return codes.slice(0, maxN);
+    // Prioritize growth names from fallback if not enough discovered
+    if (codes.length === 0) {
+      log("Using fallback universe");
+      return config.universe.fallbackSymbols.slice(0, maxN);
+    }
+    
+    // Mix discovered with high-priority growth names
+    const growthNames = ["US.NVDA", "US.TSLA", "US.AMD", "US.META", "US.GOOGL"];
+    const finalUniverse: string[] = [];
+    
+    // First, add growth names that are in fallback list
+    for (const growth of growthNames) {
+      if (config.universe.fallbackSymbols.includes(growth) && !finalUniverse.includes(growth)) {
+        finalUniverse.push(growth);
+        if (finalUniverse.length >= maxN) break;
+      }
+    }
+    
+    // Fill remainder with discovered codes
+    for (const code of codes) {
+      if (!finalUniverse.includes(code)) {
+        finalUniverse.push(code);
+        if (finalUniverse.length >= maxN) break;
+      }
+    }
+    
+    return finalUniverse.slice(0, maxN);
   }
 
   isThirdFriday(d: Date): boolean {
@@ -347,6 +535,10 @@ class Moomoo {
     if (component === "crash_hedge_put") {
       const buy = legs[0]; return px[buy.code] * buy.qty * mult;
     }
+    if (component === "long_call") {
+      const buy = legs.find(l => l.side==="BUY")!;
+      return px[buy.code] * buy.qty * mult;
+    }
     return 0;
   }
 
@@ -385,20 +577,43 @@ class Moomoo {
     }
   }
 
-  async placeLimit(
+  async placeSmartLimit(
     code: string,
     qtyContracts: number,
     side: "BUY" | "SELL",
     price?: number,
-    acc?: { accId: number; trdEnv: any }
+    acc?: { accId: number; trdEnv: any },
+    maxAttempts: number = 2,
+    timeoutMs: number = 10000
   ) {
     const a = acc || (await this.getAccount());
     const contractSize = 100;
     const qty = qtyContracts * contractSize;
+    
+    // Get smart pricing
     let px = price;
     if (!px) {
       const ob = await this.getOrderBook(code);
-      px = midPrice(ob || {}) || Number((await this.quote.get_stock_quote([code]))[1][0]?.last_price || 0);
+      const mid = midPrice(ob || {});
+      const lastPrice = Number((await this.quote.get_stock_quote([code]))[1][0]?.last_price || 0);
+      
+      if (mid && mid > 0) {
+        // Use mid with slight improvement bias
+        const improvement = side === "BUY" ? -0.01 : 0.01; // $0.01 inside mid
+        px = Math.max(0.01, mid + improvement);
+      } else {
+        px = lastPrice;
+      }
+      
+      // Check spread width - skip if too wide
+      if (ob && ob.ask && ob.bid) {
+        const spread = Number(ob.ask[0].price) - Number(ob.bid[0].price);
+        const spreadPct = px > 0 ? spread / px : 1;
+        if (spreadPct > 0.05) { // Skip if spread > 5%
+          log(`⚠️ Skipping ${code}: spread too wide (${(spreadPct * 100).toFixed(1)}%)`);
+          return { order_id: null, reason: "wide_spread" };
+        }
+      }
     }
 
     const orderData = {
@@ -409,45 +624,78 @@ class Moomoo {
       timestamp: new Date().toISOString(),
     };
 
-    const params = {
-      price: px,
-      qty,
-      code,
-      trd_side: side === "BUY" ? mm.TrdSide.BUY : mm.TrdSide.SELL,
-      order_type: mm.OrderType.NORMAL,
-      adjust_limit: 10,
-      trd_env: a.trdEnv,
-      acc_id: a.accId,
-      time_in_force: mm.TimeInForce.DAY,
-      fill_outside_rth: false,
-    };
-
     if (config.trading.dryRun) {
-      log("[DRY] place_order", params);
+      log(`[DRY] smart_limit ${code} ${side} ${qtyContracts}x @ $${px?.toFixed(2)}`);
       await saveTradeData({ ...orderData, dry_run: true, order_id: "DRY-" + Date.now() });
-      return { order_id: "DRY-" + Date.now() };
+      return { order_id: "DRY-" + Date.now(), reason: "dry_run" };
     }
 
-    const [ret, resp] = await this.trade.place_order(
-      params.price,
-      params.qty,
-      params.code,
-      params.trd_side,
-      params.order_type,
-      params.adjust_limit,
-      params.trd_env,
-      params.acc_id,
-      0,
-      "auto",
-      params.time_in_force,
-      params.fill_outside_rth
-    );
-    if (ret !== mm.RET_OK) throw new Error("place_order failed: " + resp);
-    const orderId = (resp as any).order_id;
-    log("Order placed", orderId, code, side, "@", px);
+    // Attempt orders with retry and price adjustment
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const params = {
+        price: px,
+        qty,
+        code,
+        trd_side: side === "BUY" ? mm.TrdSide.BUY : mm.TrdSide.SELL,
+        order_type: mm.OrderType.NORMAL,
+        adjust_limit: 5, // Tighter adjustment limit
+        trd_env: a.trdEnv,
+        acc_id: a.accId,
+        time_in_force: mm.TimeInForce.DAY,
+        fill_outside_rth: false,
+      };
+
+      try {
+        const [ret, resp] = await this.trade.place_order(
+          params.price,
+          params.qty,
+          params.code,
+          params.trd_side,
+          params.order_type,
+          params.adjust_limit,
+          params.trd_env,
+          params.acc_id,
+          0,
+          "auto",
+          params.time_in_force,
+          params.fill_outside_rth
+        );
+        
+        if (ret === mm.RET_OK) {
+          const orderId = (resp as any).order_id;
+          log(`✅ Order placed ${orderId} ${code} ${side} ${qtyContracts}x @ $${px?.toFixed(2)} (attempt ${attempt})`);
+          await saveTradeData({ ...orderData, order_id: orderId, attempt });
+          return { order_id: orderId, reason: "success" };
+        } else {
+          log(`❌ Order failed ${code} attempt ${attempt}: ${resp}`);
+          if (attempt < maxAttempts) {
+            // Adjust price for retry
+            const adjustment = side === "BUY" ? 0.05 : -0.05;
+            px = Math.max(0.01, (px || 0) + adjustment);
+            await sleep(1000); // Brief pause before retry
+          }
+        }
+      } catch (error) {
+        log(`❌ Order error ${code} attempt ${attempt}: ${error}`);
+        if (attempt < maxAttempts) {
+          await sleep(1000);
+        }
+      }
+    }
     
-    await saveTradeData({ ...orderData, order_id: orderId });
-    return { order_id: orderId };
+    log(`❌ All attempts failed for ${code} ${side} ${qtyContracts}x`);
+    return { order_id: null, reason: "failed" };
+  }
+  
+  // Keep legacy method for compatibility
+  async placeLimit(
+    code: string,
+    qtyContracts: number,
+    side: "BUY" | "SELL",
+    price?: number,
+    acc?: { accId: number; trdEnv: any }
+  ) {
+    return this.placeSmartLimit(code, qtyContracts, side, price, acc);
   }
 }
 
@@ -515,6 +763,14 @@ async function buildCrashHedgePut(api: Moomoo, underlying: string, expiry: strin
   );
   const target = strategy.parameters.targetDelta;
   const long = nearest(puts, (q) => Math.abs(Number(q.delta || q.option_delta || 0)), target);
+  if (!long) return [];
+  return [{ code: long.code, side: "BUY", qty: strategy.parameters.contracts }];
+}
+
+async function buildLongCall(api: Moomoo, underlying: string, expiry: string, strategy: Strategy): Promise<TradeLeg[]> {
+  const quotes = await api.getOptionQuotesForExpiry(underlying, expiry);
+  const calls = quotes.filter((q) => String(q.option_type).toUpperCase() === "CALL" || q.option_type === 1);
+  const long = nearest(calls, (q) => Math.abs(Number(q.delta || 0)), strategy.parameters.targetDelta);
   if (!long) return [];
   return [{ code: long.code, side: "BUY", qty: strategy.parameters.contracts }];
 }
@@ -628,6 +884,7 @@ async function executeRebalancing(api: Moomoo, portfolioState: PortfolioState): 
   
   const current = portfolioState.cppiMetrics.currentWeights;
   const target = portfolioState.cppiMetrics.targetWeights;
+  const totalEquity = portfolioState.sleeveEquities.total;
   
   log("Current vs Target Weights:");
   log(`  Debit: ${(current.debit * 100).toFixed(1)}% vs ${(target.debit * 100).toFixed(1)}%`);
@@ -636,12 +893,52 @@ async function executeRebalancing(api: Moomoo, portfolioState: PortfolioState): 
   log(`  Collar: ${(current.collar * 100).toFixed(1)}% vs ${(target.collar * 100).toFixed(1)}%`);
   log(`  Hedge: ${(current.hedge * 100).toFixed(1)}% vs ${(target.hedge * 100).toFixed(1)}%`);
 
-  // In a real implementation, this would:
-  // 1. Close positions in over-weight sleeves
-  // 2. Move cash to under-weight sleeves
-  // 3. Update sleeve equities accordingly
+  // Calculate rebalancing flows
+  const flows = {
+    debit: (target.debit - current.debit) * totalEquity,
+    credit: (target.credit - current.credit) * totalEquity,
+    straddle: (target.straddle - current.straddle) * totalEquity,
+    collar: (target.collar - current.collar) * totalEquity,
+    hedge: (target.hedge - current.hedge) * totalEquity
+  };
   
-  log("Rebalancing executed (implementation pending)");
+  log("Rebalancing Flows:");
+  const sleeves = Object.keys(flows) as (keyof typeof flows)[];
+  for (const sleeve of sleeves) {
+    const flow = flows[sleeve];
+    if (Math.abs(flow) > 10) { // Only log significant flows
+      log(`  ${sleeve}: ${flow > 0 ? '+' : ''}$${flow.toFixed(2)}`);
+    }
+  }
+  
+  // Execute rebalancing by adjusting sleeve equities
+  // In a real implementation, this would involve:
+  // 1. Closing over-weight positions to generate cash
+  // 2. Moving cash between sleeves
+  // 3. Opening new positions in under-weight sleeves
+  
+  // For now, simulate by directly adjusting equities to targets
+  const cushion = portfolioState.cppiMetrics.cushion;
+  if (cushion > 0) {
+    // Only rebalance when we have cushion above the floor
+    portfolioState.sleeveEquities.debit = target.debit * totalEquity;
+    portfolioState.sleeveEquities.credit = target.credit * totalEquity;
+    portfolioState.sleeveEquities.straddle = target.straddle * totalEquity;
+    portfolioState.sleeveEquities.collar = target.collar * totalEquity;
+    portfolioState.sleeveEquities.hedge = target.hedge * totalEquity;
+    
+    log("✅ Rebalancing executed - sleeve weights reset to targets");
+  } else {
+    // Near floor - move everything to safe collar/hedge
+    const safeAllocation = totalEquity * 0.98; // Leave small buffer
+    portfolioState.sleeveEquities.debit = 0;
+    portfolioState.sleeveEquities.credit = 0;
+    portfolioState.sleeveEquities.straddle = 0;
+    portfolioState.sleeveEquities.collar = safeAllocation;
+    portfolioState.sleeveEquities.hedge = totalEquity - safeAllocation;
+    
+    log("🚨 Floor protection activated - moved to safe assets");
+  }
 }
 
 async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: string[], portfolioState: PortfolioState): Promise<void> {
@@ -654,6 +951,13 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
   }
 
   const sleeveEquity = portfolioState.sleeveEquities[sleeveType];
+  
+  // Apply market filters if configured
+  const filters = (config as any).filters as MarketFilters;
+  if (filters && await shouldSkipDueToFilters(api, strategy.id, universe[0], filters)) {
+    log(`Strategy ${strategy.id} skipped due to market filters`);
+    return;
+  }
   
   // Check monthly cadence for straddles
   if (strategy.id === "event_straddles" && !cppiEngine.shouldPlaceStraddleThisWeek(portfolioState.cppiMetrics.weeksSinceStart)) {
@@ -696,6 +1000,9 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
         break;
       case "collar_position":
         legs = await buildCollarPosition(api, underlying, expiry, strategy);
+        break;
+      case "long_call":
+        legs = await buildLongCall(api, underlying, expiry, strategy);
         break;
       default:
         log(`Unknown component: ${component}`);

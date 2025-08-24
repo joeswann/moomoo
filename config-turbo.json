@@ -1,0 +1,210 @@
+{
+  "trading": {
+    "host": "127.0.0.1",
+    "port": 11111,
+    "environment": "SIMULATE",
+    "dryRun": true
+  },
+  "strategies": [
+    {
+      "id": "debit_spreads",
+      "name": "Debit Spreads",
+      "description": "Maximum convex exposure with wide spreads and long calls",
+      "enabled": true,
+      "account": {
+        "id": null,
+        "index": 0
+      },
+      "parameters": {
+        "targetDelta": 0.35,
+        "shortDelta": 0.35,
+        "width": 25,
+        "contracts": 3,
+        "dteTarget": 60,
+        "dteMin": 45,
+        "dteMax": 90
+      },
+      "riskLimits": {
+        "maxWeeklySpend": 2000,
+        "maxPositionSize": 100,
+        "maxDailyTrades": 20
+      },
+      "components": ["debit_call_vertical", "long_call"]
+    },
+    {
+      "id": "credit_spreads",
+      "name": "Credit Spreads",
+      "description": "DISABLED - Pure convex mode",
+      "enabled": false,
+      "account": {
+        "id": null,
+        "index": 1
+      },
+      "parameters": {
+        "targetDelta": 0.15,
+        "shortDelta": 0.10,
+        "width": 5,
+        "contracts": 1,
+        "dteTarget": 35,
+        "dteMin": 21,
+        "dteMax": 45
+      },
+      "riskLimits": {
+        "maxWeeklySpend": 0,
+        "maxPositionSize": 0,
+        "maxDailyTrades": 0
+      },
+      "components": ["credit_put_spread"]
+    },
+    {
+      "id": "event_straddles",
+      "name": "Event Straddles",
+      "description": "Max volatility exposure, low IV only",
+      "enabled": true,
+      "account": {
+        "id": null,
+        "index": 2
+      },
+      "parameters": {
+        "targetDelta": 0.50,
+        "shortDelta": 0.50,
+        "width": 0,
+        "contracts": 4,
+        "dteTarget": 14,
+        "dteMin": 7,
+        "dteMax": 28
+      },
+      "riskLimits": {
+        "maxWeeklySpend": 1000,
+        "maxPositionSize": 25,
+        "maxDailyTrades": 8
+      },
+      "components": ["atm_straddle"]
+    },
+    {
+      "id": "collar_equity",
+      "name": "Collar Equity",
+      "description": "Leveraged ETF ballast with minimal collar drag",
+      "enabled": true,
+      "account": {
+        "id": null,
+        "index": 3
+      },
+      "parameters": {
+        "targetDelta": 0.15,
+        "shortDelta": 0.10,
+        "width": 0,
+        "contracts": 10,
+        "dteTarget": 35,
+        "dteMin": 21,
+        "dteMax": 45
+      },
+      "riskLimits": {
+        "maxWeeklySpend": 300,
+        "maxPositionSize": 200,
+        "maxDailyTrades": 5
+      },
+      "components": ["collar_position"]
+    },
+    {
+      "id": "crash_hedge",
+      "name": "Crash Hedge",
+      "description": "Minimal insurance, far OTM",
+      "enabled": true,
+      "account": {
+        "id": null,
+        "index": 4
+      },
+      "parameters": {
+        "targetDelta": 0.03,
+        "shortDelta": 0.03,
+        "width": 0,
+        "contracts": 2,
+        "dteTarget": 90,
+        "dteMin": 60,
+        "dteMax": 120
+      },
+      "riskLimits": {
+        "maxWeeklySpend": 75,
+        "maxPositionSize": 50,
+        "maxDailyTrades": 3
+      },
+      "components": ["crash_hedge_put"]
+    }
+  ],
+  "universe": {
+    "discoveryMode": "static",
+    "maxSymbols": 4,
+    "fallbackSymbols": ["US.NVDA", "US.TSLA", "US.AMD", "US.QQQ"],
+    "filters": {
+      "minVolume": 5000000,
+      "minOpenInterest": 2000,
+      "minPrice": 100,
+      "maxPrice": 5000,
+      "preferHighBeta": true,
+      "includeLeveragedETFs": true
+    }
+  },
+  "rebalancing": {
+    "enabled": true,
+    "frequency": "biweekly",
+    "dayOfMonth": 1,
+    "rollDTE": 3
+  },
+  "risk": {
+    "globalLimits": {
+      "maxTotalWeeklySpend": 4000,
+      "maxAccountAllocation": 0.50,
+      "maxSinglePositionSize": 0.15
+    },
+    "feeEstimation": {
+      "lookbackOrders": 100,
+      "defaultFeePerContract": 1.50
+    }
+  },
+  "logging": {
+    "level": "INFO",
+    "dataDir": "./data",
+    "logFile": "./data/trading.log",
+    "enableTradeLogging": true,
+    "enablePerformanceTracking": true
+  },
+  "cppi": {
+    "floorPct": 0.75,
+    "cppiM": 8.0,
+    "riskScaleOptions": 2.0,
+    "riskySplit": {
+      "debit": 0.80,
+      "credit": 0.00,
+      "straddle": 0.19,
+      "hedgeFixed": 0.01
+    },
+    "driftBandAbs": 0.12,
+    "rebalanceEveryWeeks": 2,
+    "weeklyDeposit": 500,
+    "baseRiskPct": {
+      "debit": 0.12,
+      "credit": 0.00,
+      "straddle": 0.08,
+      "hedge": 0.01
+    },
+    "minTickets": {
+      "debit": 200,
+      "creditMaxLoss": 0,
+      "straddle": 150,
+      "hedge": 20
+    }
+  },
+  "filters": {
+    "ivRank": {
+      "enabled": true,
+      "straddleMaxIVR": 0.25,
+      "creditMinIVR": 0.80
+    },
+    "trend": {
+      "enabled": true,
+      "requireBullTrendForDebits": true,
+      "requireBearTrendForCredits": true
+    }
+  }
+}

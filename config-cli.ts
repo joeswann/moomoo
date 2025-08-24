@@ -195,6 +195,72 @@ const commands: CLICommand[] = [
       
       console.log(`✅ Configuration backed up to: ${backupPath}`);
     }
+  },
+  
+  {
+    name: "preset",
+    description: "Switch to a preset configuration (conservative|aggressive|turbo)",
+    handler: async (args) => {
+      if (!args.mode) {
+        console.error("❌ Please specify preset mode: conservative, aggressive, or turbo");
+        console.log("Examples:");
+        console.log("  deno run --allow-read --allow-write config-cli.ts preset --mode aggressive");
+        console.log("  deno run --allow-read --allow-write config-cli.ts preset --mode turbo");
+        return;
+      }
+      
+      const mode = args.mode.toLowerCase();
+      let configFile: string;
+      
+      switch (mode) {
+        case "conservative":
+          configFile = "./config.json";
+          break;
+        case "aggressive":
+          configFile = "./config-aggressive.json";
+          break;
+        case "turbo":
+          configFile = "./config-turbo.json";
+          break;
+        default:
+          console.error(`❌ Unknown preset mode: ${mode}`);
+          console.error("Available presets: conservative, aggressive, turbo");
+          return;
+      }
+      
+      try {
+        // Backup current config
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const backupPath = `./config-backup-${timestamp}.json`;
+        const currentConfig = await Deno.readTextFile("./config.json");
+        await Deno.writeTextFile(backupPath, currentConfig);
+        
+        // Copy preset to main config
+        const presetConfig = await Deno.readTextFile(configFile);
+        await Deno.writeTextFile("./config.json", presetConfig);
+        
+        console.log(`✅ Switched to ${mode} preset`);
+        console.log(`📦 Previous config backed up to: ${backupPath}`);
+        console.log(`⚠️  Review settings before going live!`);
+        
+        if (mode === "turbo") {
+          console.log(`🚨 TURBO MODE WARNING:`);
+          console.log(`   - Expects 75% floor (25% max drawdown)`);
+          console.log(`   - Requires $500/week deposits for target returns`);
+          console.log(`   - Credit spreads DISABLED for pure convexity`);
+          console.log(`   - Test thoroughly in simulation first!`);
+        } else if (mode === "aggressive") {
+          console.log(`⚡ AGGRESSIVE MODE:`);
+          console.log(`   - 80% floor (20% max drawdown)`);
+          console.log(`   - $250/week deposits recommended`);
+          console.log(`   - Wide spreads for more upside capture`);
+          console.log(`   - IV/trend filters enabled`);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Failed to switch preset: ${error.message}`);
+      }
+    }
   }
 ];
 
@@ -240,12 +306,13 @@ Common Options:
 
 async function main(): Promise<void> {
   const args = parse(Deno.args, {
-    string: ["strategy", "id", "index", "name", "description", "components", "path"],
+    string: ["strategy", "id", "index", "name", "description", "components", "path", "mode"],
     number: ["delta", "shortDelta", "contracts", "dte", "dteMin", "dteMax", "width", "maxSpend", "maxSize", "maxTrades", "accountId", "accountIndex"],
     boolean: ["help", "enabled"],
     alias: {
       h: "help",
-      s: "strategy"
+      s: "strategy",
+      m: "mode"
     }
   });
 
