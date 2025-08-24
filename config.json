@@ -7,9 +7,9 @@
   },
   "strategies": [
     {
-      "id": "barbell_convex",
-      "name": "Barbell Convex",
-      "description": "Debit call vertical + Crash hedge for convex payoff profile",
+      "id": "debit_spreads",
+      "name": "Debit Spreads",
+      "description": "Defined-risk convex sleeve with long call/put verticals",
       "enabled": true,
       "account": {
         "id": null,
@@ -17,24 +17,24 @@
       },
       "parameters": {
         "targetDelta": 0.30,
-        "shortDelta": 0.08,
+        "shortDelta": 0.30,
         "width": 5,
         "contracts": 1,
-        "dteTarget": 28,
+        "dteTarget": 35,
         "dteMin": 21,
         "dteMax": 45
       },
       "riskLimits": {
-        "maxWeeklySpend": 200,
-        "maxPositionSize": 10,
-        "maxDailyTrades": 5
+        "maxWeeklySpend": 500,
+        "maxPositionSize": 20,
+        "maxDailyTrades": 10
       },
-      "components": ["debit_call_vertical", "crash_hedge"]
+      "components": ["debit_call_vertical"]
     },
     {
-      "id": "balanced_income",
-      "name": "Balanced Income",
-      "description": "Credit put spreads for steady income generation with defined risk",
+      "id": "credit_spreads",
+      "name": "Credit Spreads",
+      "description": "High win-rate income sleeve with bull put spreads",
       "enabled": true,
       "account": {
         "id": null,
@@ -44,22 +44,22 @@
         "targetDelta": 0.25,
         "shortDelta": 0.20,
         "width": 5,
-        "contracts": 2,
-        "dteTarget": 30,
+        "contracts": 1,
+        "dteTarget": 35,
         "dteMin": 21,
         "dteMax": 45
       },
       "riskLimits": {
-        "maxWeeklySpend": 300,
-        "maxPositionSize": 20,
+        "maxWeeklySpend": 200,
+        "maxPositionSize": 15,
         "maxDailyTrades": 8
       },
       "components": ["credit_put_spread"]
     },
     {
-      "id": "volatility_bet",
-      "name": "Volatility Bet", 
-      "description": "ATM straddles to capture volatility expansion and market moves",
+      "id": "event_straddles",
+      "name": "Event Straddles", 
+      "description": "Monthly convex sleeve capturing volatility expansions",
       "enabled": true,
       "account": {
         "id": null,
@@ -70,66 +70,66 @@
         "shortDelta": 0.50,
         "width": 0,
         "contracts": 1,
-        "dteTarget": 28,
-        "dteMin": 14,
+        "dteTarget": 21,
+        "dteMin": 7,
         "dteMax": 35
       },
       "riskLimits": {
         "maxWeeklySpend": 400,
-        "maxPositionSize": 5,
-        "maxDailyTrades": 3
+        "maxPositionSize": 8,
+        "maxDailyTrades": 4
       },
       "components": ["atm_straddle"]
     },
     {
-      "id": "wheel_strategy",
-      "name": "Wheel Strategy",
-      "description": "Cash-secured puts for income with potential stock assignment",
+      "id": "collar_equity",
+      "name": "Collar Equity",
+      "description": "Ballast sleeve with ETF holdings and monthly collar overlay",
       "enabled": true,
       "account": {
         "id": null,
         "index": 3
       },
       "parameters": {
-        "targetDelta": 0.25,
-        "shortDelta": 0.25,
+        "targetDelta": 0.20,
+        "shortDelta": 0.15,
         "width": 0,
-        "contracts": 3,
-        "dteTarget": 35,
-        "dteMin": 28,
-        "dteMax": 45
+        "contracts": 1,
+        "dteTarget": 28,
+        "dteMin": 21,
+        "dteMax": 35
       },
       "riskLimits": {
-        "maxWeeklySpend": 500,
-        "maxPositionSize": 30,
-        "maxDailyTrades": 10
+        "maxWeeklySpend": 100,
+        "maxPositionSize": 50,
+        "maxDailyTrades": 2
       },
-      "components": ["cash_secured_put"]
+      "components": ["collar_position"]
     },
     {
-      "id": "mixed_opportunistic",
-      "name": "Mixed Opportunistic",
-      "description": "Alternating call verticals and put spreads based on market conditions",
+      "id": "crash_hedge",
+      "name": "Crash Hedge",
+      "description": "Tail insurance sleeve with far OTM puts",
       "enabled": true,
       "account": {
         "id": null,
         "index": 4
       },
       "parameters": {
-        "targetDelta": 0.30,
-        "shortDelta": 0.20,
-        "width": 5,
+        "targetDelta": 0.08,
+        "shortDelta": 0.08,
+        "width": 0,
         "contracts": 1,
-        "dteTarget": 28,
-        "dteMin": 21,
-        "dteMax": 45
+        "dteTarget": 45,
+        "dteMin": 30,
+        "dteMax": 60
       },
       "riskLimits": {
-        "maxWeeklySpend": 150,
-        "maxPositionSize": 8,
-        "maxDailyTrades": 4
+        "maxWeeklySpend": 50,
+        "maxPositionSize": 10,
+        "maxDailyTrades": 3
       },
-      "components": ["debit_call_vertical", "credit_put_spread"]
+      "components": ["crash_hedge_put"]
     }
   ],
   "universe": {
@@ -166,5 +166,31 @@
     "logFile": "./data/trading.log",
     "enableTradeLogging": true,
     "enablePerformanceTracking": true
+  },
+  "cppi": {
+    "floorPct": 0.85,
+    "cppiM": 4.0,
+    "riskScaleOptions": 1.25,
+    "riskySplit": {
+      "debit": 0.60,
+      "credit": 0.15,
+      "straddle": 0.25,
+      "hedgeFixed": 0.02
+    },
+    "driftBandAbs": 0.10,
+    "rebalanceEveryWeeks": 4,
+    "weeklyDeposit": 50,
+    "baseRiskPct": {
+      "debit": 0.06,
+      "credit": 0.02,
+      "straddle": 0.04,
+      "hedge": 0.01
+    },
+    "minTickets": {
+      "debit": 30,
+      "creditMaxLoss": 100,
+      "straddle": 50,
+      "hedge": 5
+    }
   }
 }

@@ -87,6 +87,33 @@ export interface LoggingConfig {
   enablePerformanceTracking: boolean;
 }
 
+export interface CPPIConfig {
+  floorPct: number;
+  cppiM: number;
+  riskScaleOptions: number;
+  riskySplit: {
+    debit: number;
+    credit: number;
+    straddle: number;
+    hedgeFixed: number;
+  };
+  driftBandAbs: number;
+  rebalanceEveryWeeks: number;
+  weeklyDeposit: number;
+  baseRiskPct: {
+    debit: number;
+    credit: number;
+    straddle: number;
+    hedge: number;
+  };
+  minTickets: {
+    debit: number;
+    creditMaxLoss: number;
+    straddle: number;
+    hedge: number;
+  };
+}
+
 export interface BotConfig {
   trading: TradingConfig;
   strategies: Strategy[];
@@ -94,6 +121,7 @@ export interface BotConfig {
   rebalancing: RebalancingConfig;
   risk: RiskConfig;
   logging: LoggingConfig;
+  cppi: CPPIConfig;
 }
 
 // ---- Configuration Manager -------------------------------------------------
@@ -120,7 +148,7 @@ export class ConfigManager {
       console.log(`✓ Loaded configuration from ${this.configPath}`);
       return config;
     } catch (error) {
-      console.error(`Failed to load config: ${error.message}`);
+      console.error(`Failed to load config: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -265,6 +293,10 @@ export class ConfigManager {
     return this.config.logging;
   }
 
+  getCPPIConfig(): CPPIConfig {
+    return this.config.cppi;
+  }
+
   // ---- Dynamic Configuration Updates ----
   async saveConfig(): Promise<void> {
     try {
@@ -272,7 +304,7 @@ export class ConfigManager {
       await Deno.writeTextFile(this.configPath, configText);
       console.log(`✓ Configuration saved to ${this.configPath}`);
     } catch (error) {
-      console.error(`Failed to save config: ${error.message}`);
+      console.error(`Failed to save config: ${error instanceof Error ? error.message : String(error)}`);
       throw error;
     }
   }
@@ -421,6 +453,32 @@ export class ConfigManager {
         logFile: "./data/trading.log",
         enableTradeLogging: true,
         enablePerformanceTracking: true
+      },
+      cppi: {
+        floorPct: 0.85,
+        cppiM: 4.0,
+        riskScaleOptions: 1.25,
+        riskySplit: {
+          debit: 0.60,
+          credit: 0.15,
+          straddle: 0.25,
+          hedgeFixed: 0.02
+        },
+        driftBandAbs: 0.10,
+        rebalanceEveryWeeks: 4,
+        weeklyDeposit: 50,
+        baseRiskPct: {
+          debit: 0.06,
+          credit: 0.02,
+          straddle: 0.04,
+          hedge: 0.01
+        },
+        minTickets: {
+          debit: 30,
+          creditMaxLoss: 100,
+          straddle: 50,
+          hedge: 5
+        }
       }
     };
 

@@ -697,7 +697,7 @@ async function executeSleeveStrategy(api: Moomoo, strategy: Strategy, universe: 
   log(`Estimated fee per contract: $${feePer.toFixed(2)}`);
 }
 
-function getSleeveType(strategyId: string): keyof SleeveWeights | null {
+function getSleeveType(strategyId: string): keyof SleeveEquities | null {
   switch (strategyId) {
     case "debit_spreads": return "debit";
     case "credit_spreads": return "credit";
