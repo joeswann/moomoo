@@ -1,0 +1,18 @@
+FROM denoland/deno:1.42.4
+
+WORKDIR /app
+
+# Copy dependencies
+COPY deno.json ./
+COPY health-check.ts ./
+
+# Cache dependencies
+RUN deno cache --node-modules-dir health-check.ts
+
+# Create dashboard script
+COPY dashboard.ts ./
+RUN deno cache --node-modules-dir dashboard.ts
+
+EXPOSE 8080
+
+CMD ["deno", "run", "--allow-net", "--allow-read", "dashboard.ts"]

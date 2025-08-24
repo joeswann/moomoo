@@ -1,0 +1,27 @@
+{
+  "imports": {
+    "std/": "https://deno.land/std@0.224.0/",
+    "moomoo-api": "npm:moomoo-api@latest"
+  },
+  "tasks": {
+    "start": "deno run --allow-net --allow-read --allow-write --allow-env main.ts",
+    "backtest": "deno run --allow-net --allow-read --allow-write --allow-env backtest.ts",
+    "dashboard": "deno run --allow-net --allow-read dashboard.ts",
+    "health": "deno run --allow-net --allow-read health-check.ts",
+    "config": "deno run --allow-read --allow-write config-cli.ts",
+    "dev": "deno run --allow-net --allow-read --allow-write --allow-env --watch main.ts",
+    "check": "deno check main.ts backtest.ts dashboard.ts health-check.ts config.ts config-cli.ts",
+    "docker:build": "docker build -t moomoo-bot .",
+    "docker:run": "docker run --env-file .env moomoo-bot"
+  },
+  "fmt": {
+    "useTabs": false,
+    "lineWidth": 120,
+    "indentWidth": 2
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  }
+}

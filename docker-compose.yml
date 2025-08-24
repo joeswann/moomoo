@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  moomoo-bot:
+    build: .
+    container_name: moomoo-options-bot
+    environment:
+      - MOOMOO_HOST=host.docker.internal  # Connect to OpenD running on host
+      - MOOMOO_PORT=11111
+      - TRD_ENV=SIMULATE
+      - DRY_RUN=true
+      - DATA_DIR=/app/data
+      - LOG_FILE=/app/data/trading.log
+    volumes:
+      - ./data:/app/data  # Persist data and logs
+      - ./.env:/app/.env:ro  # Mount environment file
+    restart: unless-stopped
+    networks:
+      - moomoo-network
+
+  # Optional: Add a simple web dashboard for monitoring
+  dashboard:
+    build: 
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: moomoo-dashboard
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data:ro
+    restart: unless-stopped
+    networks:
+      - moomoo-network
+    depends_on:
+      - moomoo-bot
+
+networks:
+  moomoo-network:
+    driver: bridge
+
+volumes:
+  moomoo-data:
+    driver: local
